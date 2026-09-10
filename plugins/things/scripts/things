@@ -1,0 +1,1144 @@
+#!/usr/bin/env python3
+"""things: the shared CLI behind the things-skills plugin (SPEC section E).
+
+Reads go through things.py (things_lib.read); writes go through the Things URL scheme
+(things_lib.url + things_lib.transport). Exactly one JSON envelope is printed to stdout.
+"""
+
+import argparse
+import json
+import os
+import platform
+import re
+import sys
+from datetime import date, datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+if not sys.path or sys.path[0] != HERE:
+    sys.path.insert(0, HERE)
+
+from things_lib import __version__  # noqa: E402
+from things_lib import config as config_mod  # noqa: E402
+from things_lib import dates, read, verify  # noqa: E402
+from things_lib import token as token_mod  # noqa: E402
+from things_lib import transport as transport_mod  # noqa: E402
+from things_lib import url as url_mod  # noqa: E402
+from things_lib.config import ConfigError  # noqa: E402
+from things_lib.read import ReadError  # noqa: E402
+from things_lib.token import TokenError  # noqa: E402
+from things_lib.transport import TransportError  # noqa: E402
+from things_lib.url import UrlError  # noqa: E402
+
+EXIT_OK = 0
+EXIT_USAGE = 1
+EXIT_TRANSPORT = 2
+EXIT_READ = 3
+EXIT_REFUSED = 4
+YES_THRESHOLD = 10
+
+REPEATING_WARNING = ("Repeating to-dos may be missing: things.py only sees instances Things has "
+                     "already generated. Open Things once to refresh.")
+REPEATING_SKIP_REASON = ("repeating to-do: Things URL scheme cannot change when/deadline/completed/"
+                         "canceled; do it in Things")
+ANYTIME_WARNING = "when=anytime is undocumented for update; check the result in Things"
+CLEAR_FIELDS = {"when": "when", "deadline": "deadline", "tags": "tags", "notes": "notes",
+                "checklist": "checklist-items"}
+NOW_FORMATS = ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
+# An unfilled template slot such as <AREA> or <PROJECT> (the skills print these for the agent to fill in).
+PLACEHOLDER = re.compile(r"^<[A-Z][A-Z0-9_-]*>$")
+CONTAINER_FLAGS = ("list", "list-id", "area", "area-id", "heading", "heading-id")
+
+
+class CliError(Exception):
+    """Carries the exit code and an optional partial `data` for the envelope."""
+
+    def __init__(self, message: str, code: int = EXIT_USAGE, data: Any = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.data = data
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse that raises instead of exiting, so usage errors become exit 1 with an envelope."""
+
+    def error(self, message: str) -> None:  # type: ignore[override]
+        raise CliError(message, EXIT_USAGE)
+
+
+def new_envelope(command: Optional[str]) -> Dict[str, Any]:
+    return {"ok": True, "command": command or "", "data": None, "urls": [], "sent": False,
+            "verified": None, "verify_reason": None, "ids": [], "links": [], "warnings": [], "error": None}
+
+
+def parse_now(value: Optional[str]) -> Tuple[datetime, bool]:
+    if not value:
+        return datetime.now(), False
+    for fmt in NOW_FORMATS:
+        try:
+            return datetime.strptime(value, fmt), True
+        except ValueError:
+            continue
+    raise CliError(f"invalid --now value '{value}'; expected YYYY-MM-DDTHH:MM or YYYY-MM-DD HH:MM[:SS]")
+
+
+def split_tags(values: Optional[List[str]]) -> List[str]:
+    """--tags a,b (repeatable) -> ['a', 'b'], trimmed, deduplicated, order kept."""
+    result: List[str] = []
+    for value in values or []:
+        for part in value.split(","):
+            part = part.strip()
+            if part and part not in result:
+                result.append(part)
+    return result
+
+
+def split_lines(values: Optional[List[str]]) -> List[str]:
+    """--checklist / --todo (repeatable; embedded newlines split too)."""
+    result: List[str] = []
+    for value in values or []:
+        for line in value.split("\n"):
+            line = line.strip()
+            if line:
+                result.append(line)
+    return result
+
+
+def when_matches(item: Dict, value: str, now: datetime) -> bool:
+    """Predicate for a `when` write, judged from a things.py task dict."""
+    today = now.date()
+    start_date = item.get("start_date")
+    if value == "":
+        return start_date is None
+    if value in ("today", "evening"):
+        return start_date == today.isoformat()
+    if value == "tomorrow":
+        return start_date == (today + timedelta(days=1)).isoformat()
+    if value == "anytime":
+        return item.get("start") == "Anytime" and start_date is None
+    if value == "someday":
+        # Upcoming items also carry start == "Someday" (with a start_date), so both must hold.
+        return item.get("start") == "Someday" and start_date is None
+    return start_date == value.split("@")[0]
+
+
+def deadline_matches(item: Dict, value: str, now: datetime) -> bool:
+    """Predicate for a `deadline` write: things.py reports ISO dates, the URL vocabulary also has today/tomorrow."""
+    if value == "today":
+        value = now.date().isoformat()
+    elif value == "tomorrow":
+        value = (now.date() + timedelta(days=1)).isoformat()
+    return (item.get("deadline") or "") == value
+
+
+def container_matches(item: Dict, value: str, keys: Tuple[str, ...]) -> bool:
+    folded = value.casefold()
+    for key in keys:
+        current = item.get(key)
+        if isinstance(current, str) and (current == value or current.casefold() == folded):
+            return True
+    return False
+
+
+Lookup = Callable[[str], Optional[Dict]]
+
+
+def project_ref(item: Dict, lookup: Optional[Lookup]) -> Dict:
+    """things.py leaves `project` empty for a to-do under a heading; resolve it through the heading row.
+
+    Returns `item` itself when nothing is missing, otherwise a copy with project/project_title filled in.
+    """
+    if item.get("project") or not item.get("heading") or lookup is None:
+        return item
+    heading = lookup(item["heading"])
+    if not heading:
+        return item
+    merged = dict(item)
+    for key in ("project", "project_title"):
+        if heading.get(key) is not None:
+            merged[key] = heading[key]
+    return merged
+
+
+def update_predicate(params: Dict[str, Any], now: datetime, lookup: Optional[Lookup] = None) -> Callable[[Dict], bool]:
+    """Every changed scalar field must be visible in the re-read item (SPEC C.6)."""
+
+    def predicate(item: Dict) -> bool:
+        for key, value in params.items():
+            if key == "id" or value is None:
+                continue
+            if key == "title" and item.get("title") != value:
+                return False
+            if key == "notes" and (item.get("notes") or "") != value:
+                return False
+            if key == "when" and not when_matches(item, value, now):
+                return False
+            if key == "deadline" and not deadline_matches(item, value, now):
+                return False
+            if key == "completed":
+                if item.get("status") != ("completed" if value else "incomplete"):
+                    return False
+            if key == "canceled":
+                if item.get("status") != ("canceled" if value else "incomplete"):
+                    return False
+            if key == "tags" and set(value or []) != set(item.get("tags") or []):
+                return False
+            if key == "add-tags" and not set(value) <= set(item.get("tags") or []):
+                return False
+            if key in ("list", "list-id"):
+                if not container_matches(project_ref(item, lookup), value, ("project", "project_title", "area", "area_title")):
+                    return False
+            if key in ("area", "area-id") and not container_matches(item, value, ("area", "area_title")):
+                return False
+            if key in ("heading", "heading-id") and not container_matches(item, value, ("heading", "heading_title")):
+                return False
+        return True
+
+    return predicate
+
+
+class Runner:
+    """Per-invocation state: parsed args, envelope, lazily loaded config/transport/token."""
+
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.env = new_envelope(args.command)
+        self.now, self.frozen = parse_now(args.now)
+        self.limiter = url_mod.RateLimiter()
+        self._config: Optional[Dict[str, Any]] = None
+        self._transport: Optional[str] = None
+        self._token: Optional[str] = None
+        self._db_available: Optional[bool] = None
+        self._items: Dict[str, Optional[Dict]] = {}
+        self._sent_flags: List[bool] = []
+
+    # --- lazy resources -------------------------------------------------------------------
+    @property
+    def config(self) -> Dict[str, Any]:
+        if self._config is None:
+            self._config = config_mod.load_config(self.args.config)
+        return self._config
+
+    def preload_config(self) -> None:
+        """A malformed config file is exit 1 for every command except doctor (SPEC G)."""
+        if self.args.command != "doctor":
+            self.config  # noqa: B018 - property access triggers load_config
+
+    @property
+    def transport(self) -> str:
+        if self._transport is None:
+            self._transport = "dry" if self.args.dry_run else transport_mod.select_transport(self.args.transport)
+        return self._transport
+
+    def token(self) -> str:
+        """Token file first; the Things database is a fallback only for the real database (C.3).
+
+        Under --dry-run nothing is sent, so a missing token is replaced by a placeholder
+        (masked as *** like a real one) and reported as a warning (SPEC E.3).
+        """
+        if self._token is None:
+            fallback = read.token_from_database if read.database_status() == "readable" else None
+            try:
+                self._token = token_mod.resolve_token(fallback=fallback)
+            except TokenError:
+                if self.transport != "dry":
+                    raise
+                self.warn("auth token not found; dry-run continues with a placeholder")
+                self._token = "DRY-RUN-PLACEHOLDER"
+        return self._token
+
+    def db_available(self) -> bool:
+        if self._db_available is None:
+            self._db_available = read.database_status() != "unavailable"
+        return self._db_available
+
+    def warn(self, message: str) -> None:
+        if message not in self.env["warnings"]:
+            self.env["warnings"].append(message)
+
+    def since(self) -> datetime:
+        return self.now if self.frozen else datetime.now()
+
+    # --- validation helpers ---------------------------------------------------------------
+    def check_when(self, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if not url_mod.VALID_WHEN.match(value):
+            raise CliError(f"invalid --when value '{value}'; run: things parse-date '{value}'")
+        return value
+
+    def check_deadline(self, value: Optional[str], flag: str = "--deadline") -> Optional[str]:
+        if value is None:
+            return None
+        if not url_mod.VALID_DEADLINE.match(value):
+            raise CliError(f"invalid {flag} value '{value}'; run: things parse-date '{value}'")
+        return value
+
+    def check_placeholder(self, value: Optional[str], flag: str) -> Optional[str]:
+        """Refuse an unfilled template slot like `<AREA>` (Things would silently ignore an unknown list)."""
+        if value is not None and PLACEHOLDER.match(value):
+            raise CliError(f"placeholder {value} for --{flag} was not filled in")
+        return value
+
+    def check_container(self, value: Optional[str], flag: str) -> Optional[str]:
+        """E.8: a `--list`/`--area` NAME that matches no project or area title (casefolded) is passed through with
+        a warning: Things ignores an unknown name silently, so only this warning names the typo before the send.
+        `--list-id`/`--area-id`/`--heading*` are not resolved."""
+        value = self.check_placeholder(value, flag)
+        if value is None or flag not in ("list", "area") or not self.db_available():
+            return value
+        try:
+            titles = [a.get("title") or "" for a in read.areas()]
+            if flag == "list":
+                titles += [p.get("title") or "" for p in read.projects(None, self.now)]
+        except ReadError:
+            self.warn(f"database unavailable: --{flag} not verified")
+            return value
+        if not any(title.casefold() == value.casefold() for title in titles):
+            kinds = "project or area" if flag == "list" else "area"
+            self.warn(f"unknown {flag}: {value}; no {kinds} has that title, Things will ignore it "
+                      f"(run: things areas{' / things projects' if flag == 'list' else ''})")
+        return value
+
+    def check_yes(self, count: int) -> None:
+        if count > YES_THRESHOLD and not self.args.yes:
+            raise CliError(f"refusing to modify {count} items without --yes", EXIT_REFUSED)
+
+    def filter_tags(self, tags: List[str]) -> Optional[List[str]]:
+        """Drop tags Things does not know (E.8); pass through with a warning when unverifiable."""
+        if not tags:
+            return None
+        known: Optional[Dict[str, str]] = None
+        if self.db_available():
+            try:
+                known = {title.casefold(): title for title in read.tag_titles()}
+            except ReadError:
+                known = None
+        if known is None:
+            self.warn("database unavailable: tags not verified")
+            return tags
+        kept: List[str] = []
+        for tag in tags:
+            canonical = known.get(tag.casefold())
+            if canonical is None:
+                self.warn(f"tag not found in Things, dropped: {tag}")
+            elif canonical not in kept:
+                kept.append(canonical)
+        return kept or None
+
+    # --- item lookups ---------------------------------------------------------------------
+    def item(self, item_id: str) -> Optional[Dict]:
+        """Cached read.get; None when unknown or when the database is unavailable."""
+        if item_id not in self._items:
+            found = None
+            if self.db_available():
+                try:
+                    found = read.get(item_id, self.now)
+                except ReadError:
+                    self._db_available = False
+            self._items[item_id] = found
+        return self._items[item_id]
+
+    def check_ids(self, ids: List[str]) -> Tuple[List[str], List[str]]:
+        """(ids to process, unknown ids). Unknown ids are skipped only when the database can tell."""
+        keep: List[str] = []
+        unknown: List[str] = []
+        for item_id in ids:
+            if self.db_available():
+                found = self.item(item_id)
+                if found is None and self.db_available():
+                    unknown.append(item_id)
+                    self.warn(f"unknown id: {item_id}")
+                    continue
+            keep.append(item_id)
+        return keep, unknown
+
+    def kind(self, item_id: str) -> str:
+        """"to-do" or "project" for the update command family."""
+        found = self.item(item_id)
+        if found is None:
+            return "project" if self.args.project else "to-do"
+        item_type = found.get("type")
+        if item_type in ("to-do", "project"):
+            return item_type
+        raise CliError(f"{item_id} is a {item_type}; only to-dos and projects can be modified")
+
+    def title_of(self, item_id: str) -> Optional[str]:
+        found = self.item(item_id)
+        return found.get("title") if found else None
+
+    def repeating_skip(self, item_id: str, skipped: List[Dict]) -> bool:
+        """E.9: True when the item is repeating (recorded in `skipped`); warns when unknown."""
+        state = read.is_repeating(item_id) if self.db_available() else None
+        if state:
+            entry = {"id": item_id, "title": self.title_of(item_id), "reason": REPEATING_SKIP_REASON}
+            skipped.append(entry)
+            self.warn(f"skipped {item_id}: {REPEATING_SKIP_REASON}")
+            return True
+        if state is None:
+            self.warn(f"repeating check unavailable for {item_id}")
+        return False
+
+    # --- sending and verification ---------------------------------------------------------
+    def send(self, command: str, params_or_objects: Any, built_url: str, foreground: bool = False) -> None:
+        if self.transport != "dry":
+            self.limiter.acquire(url_mod.count_items(command, params_or_objects))
+        result = transport_mod.send(built_url, self.transport, command, foreground=foreground)
+        self.env["urls"].append(result.masked_url)
+        self._sent_flags.append(result.sent)
+        self.env["sent"] = bool(self._sent_flags) and all(self._sent_flags)
+
+    def finish_verify(self, run: Callable[[], verify.VerifyResult], fallback_ids: List[str]) -> int:
+        """Fill verified/verify_reason/ids/links; return the exit code (2 on open-transport timeout)."""
+        links = [url_mod.show_url(i) for i in fallback_ids]
+        if self.transport == "dry":
+            self.env["ids"], self.env["links"] = list(fallback_ids), links
+            return EXIT_OK
+        if self.args.verify_timeout <= 0:
+            self.env["verified"], self.env["verify_reason"] = False, "verification disabled"
+            self.env["ids"], self.env["links"] = list(fallback_ids), links
+            return EXIT_OK
+        result = run()
+        self.env["verified"], self.env["verify_reason"] = result.verified, result.reason
+        if result.verified:
+            self.env["ids"], self.env["links"] = list(result.ids), list(result.links)
+        else:
+            self.env["ids"], self.env["links"] = list(fallback_ids), links
+        if self.transport == "open" and not result.verified and (result.reason or "").startswith("timeout"):
+            return EXIT_TRANSPORT
+        return EXIT_OK
+
+    def verify_created(self, titles: List[str], since: datetime) -> int:
+        return self.finish_verify(
+            lambda: verify.verify_created(titles, since, timeout=self.args.verify_timeout, transport=self.transport),
+            [])
+
+    def verify_updated(self, ids: List[str], predicate: Callable[[Dict], bool]) -> int:
+        return self.finish_verify(
+            lambda: verify.verify_updated(ids, predicate, timeout=self.args.verify_timeout, transport=self.transport),
+            ids)
+
+
+# --- read subcommands (E.4) -------------------------------------------------------------------
+
+def cmd_inbox(r: Runner) -> int:
+    r.env["data"] = read.inbox(r.now)
+    return EXIT_OK
+
+
+def cmd_today(r: Runner) -> int:
+    items = read.today(r.now)
+    hint = read.repeating_templates(r.now.date())
+    r.env["data"] = {"items": items, "repeating_hint": hint}
+    r.warn(REPEATING_WARNING)
+    if hint.get("warning"):
+        r.warn(hint["warning"])
+    return EXIT_OK
+
+
+def cmd_upcoming(r: Runner) -> int:
+    r.env["data"] = read.upcoming(r.now)
+    return EXIT_OK
+
+
+def cmd_anytime(r: Runner) -> int:
+    items = read.anytime(r.now)
+    if not r.args.all_types:
+        items = [item for item in items if item.get("type") == "to-do"]
+    r.env["data"] = items
+    return EXIT_OK
+
+
+def cmd_someday(r: Runner) -> int:
+    r.env["data"] = read.someday(r.now)
+    return EXIT_OK
+
+
+def cmd_logbook(r: Runner) -> int:
+    if r.args.days < 0:
+        raise CliError("--days must be >= 0")
+    r.env["data"] = read.logbook(r.args.days, r.now.date())
+    return EXIT_OK
+
+
+def cmd_deadlines(r: Runner) -> int:
+    items = read.deadlines(r.now)
+    if r.args.within is not None:
+        items = [item for item in items
+                 if item.get("days_until_deadline") is not None and item["days_until_deadline"] <= r.args.within]
+    r.env["data"] = items
+    return EXIT_OK
+
+
+def cmd_projects(r: Runner) -> int:
+    r.env["data"] = read.projects(r.args.area, r.now)
+    return EXIT_OK
+
+
+def cmd_areas(r: Runner) -> int:
+    r.env["data"] = read.areas()
+    return EXIT_OK
+
+
+def cmd_tags(r: Runner) -> int:
+    r.env["data"] = read.tags()
+    return EXIT_OK
+
+
+def cmd_get(r: Runner) -> int:
+    item = read.get(r.args.id, r.now)
+    if item is None:
+        raise CliError(f"no item with id {r.args.id}", EXIT_USAGE)
+    r.env["data"] = item
+    r.env["ids"] = [r.args.id]
+    r.env["links"] = [url_mod.show_url(r.args.id)]
+    return EXIT_OK
+
+
+def cmd_search(r: Runner) -> int:
+    if r.args.limit < 1:
+        raise CliError("--limit must be >= 1")
+    synonyms = None if r.args.no_synonyms else r.config.get("synonyms")
+    r.env["data"] = read.search(r.args.query, status=r.args.status, area=r.args.area, project=r.args.project,
+                                item_type=r.args.type, limit=r.args.limit, synonyms=synonyms, now=r.now)
+    return EXIT_OK
+
+
+def cmd_stale(r: Runner) -> int:
+    days = r.args.days if r.args.days is not None else r.config["stale_days"]
+    if days < 0:
+        raise CliError("--days must be >= 0")
+    r.env["data"] = read.stale(days, r.now)
+    return EXIT_OK
+
+
+def cmd_overdue(r: Runner) -> int:
+    r.env["data"] = read.overdue(r.now.date())
+    return EXIT_OK
+
+
+def cmd_parse_date(r: Runner) -> int:
+    result = dates.extract_dates(r.args.text, r.now, r.config["default_reminder_time"])
+    kind = r.args.kind
+    if kind == "when" and result["when"] is None and result["deadline"]:
+        result["when"] = result["deadline"] + (f"@{result['reminder']}" if result["reminder"] else "")
+        result["deadline"] = None
+    elif kind == "deadline" and result["deadline"] is None and result["when"]:
+        when = result["when"]
+        if when == "today":
+            result["deadline"], result["when"] = r.now.date().isoformat(), None
+        elif when == "tomorrow":
+            result["deadline"], result["when"] = (r.now.date() + timedelta(days=1)).isoformat(), None
+        elif when[:4].isdigit():
+            result["deadline"], result["when"] = when.split("@")[0], None
+        else:
+            r.warn(f"'{when}' cannot be a deadline; kept as when")
+    r.env["data"] = result
+    return EXIT_OK
+
+
+def cmd_doctor(r: Runner) -> int:
+    data: Dict[str, Any] = {"platform": platform.system(), "python": platform.python_version()}
+    try:
+        data["transport"] = r.transport
+    except TransportError as exc:
+        data["transport"] = None
+        r.warn(str(exc))
+    status = read.database_status()
+    data["database"] = {"path": read.database_path(), "status": status,
+                        "error": read.database_error() if status == "unavailable" else None}
+    path = token_mod.token_path()
+    present = os.path.isfile(path)
+    empty = False
+    mode: Optional[int] = None
+    if present:
+        mode = os.stat(path).st_mode
+        try:
+            with open(path, encoding="utf-8") as handle:
+                empty = handle.read().strip() == ""
+        except (OSError, UnicodeDecodeError):  # unreadable or not text: report it as unusable, never crash doctor
+            empty = True
+    data["token"] = {"path": token_mod.TOKEN_PATH, "present": present, "empty": empty,
+                     "mode_ok": (mode & 0o077 == 0) if mode is not None else None,
+                     "mode": format(mode & 0o777, "04o") if mode is not None else None}
+    data["things_py"] = read.things_py_info()  # installed, version, source (bundled|system), path
+    config_path = config_mod.config_path(r.args.config)
+    valid = True
+    try:
+        config = r.config
+    except ConfigError as exc:
+        valid = False
+        config = dict(config_mod.DEFAULTS)
+        r.warn(str(exc))
+    missing_tags: Optional[List[str]] = None
+    if status != "unavailable":
+        try:
+            titles = set(read.tag_titles())
+            missing_tags = [tag for tag in config.get("tags", []) if tag not in titles]
+        except ReadError:
+            missing_tags = None
+    data["config"] = {"path": config_path, "present": os.path.isfile(config_path), "valid": valid,
+                      "missing_tags": missing_tags}
+    data["cli_version"] = __version__
+    r.env["data"] = data
+    return EXIT_OK
+
+
+def cmd_ping(r: Runner) -> int:
+    built = url_mod.build("version", {})
+    r.send("version", {}, built)
+    r.env["data"] = {"transport": r.transport, "handler_found": r.env["sent"]}
+    return EXIT_OK
+
+
+# --- write subcommands (E.8) ------------------------------------------------------------------
+
+def echo_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in params.items() if value is not None}
+
+
+def cmd_add(r: Runner) -> int:
+    a = r.args
+    params: Dict[str, Any] = {
+        "title": a.title, "notes": a.notes, "when": r.check_when(a.when),
+        "deadline": r.check_deadline(a.deadline), "tags": r.filter_tags(split_tags(a.tags)),
+        "checklist-items": split_lines(a.checklist) or None,
+        "list-id": r.check_placeholder(a.list_id, "list-id"), "list": r.check_container(a.list, "list"),
+        "heading-id": r.check_placeholder(a.heading_id, "heading-id"), "heading": r.check_placeholder(a.heading, "heading"),
+        "completed": True if a.completed else None, "canceled": True if a.canceled else None,
+    }
+    built = url_mod.build("add", params)
+    since = r.since()
+    r.send("add", params, built)
+    r.env["data"] = echo_params(params)
+    return r.verify_created([a.title], since)
+
+
+def cmd_add_project(r: Runner) -> int:
+    a = r.args
+    params: Dict[str, Any] = {
+        "title": a.title, "notes": a.notes, "when": r.check_when(a.when),
+        "deadline": r.check_deadline(a.deadline), "tags": r.filter_tags(split_tags(a.tags)),
+        "area-id": r.check_placeholder(a.area_id, "area-id"), "area": r.check_container(a.area, "area"),
+        "to-dos": split_lines(a.todo) or None,
+    }
+    built = url_mod.build("add-project", params)
+    since = r.since()
+    r.send("add-project", params, built)
+    r.env["data"] = echo_params(params)
+    return r.verify_created([a.title], since)
+
+
+def filter_json_tags(r: Runner, objects: List[Dict]) -> None:
+    """Apply the E.8 tag rule to `tags` arrays and `add-tags` strings at any depth."""
+    for obj in objects:
+        attrs = obj.get("attributes") if isinstance(obj, dict) else None
+        if not isinstance(attrs, dict):
+            continue
+        if isinstance(attrs.get("tags"), list):
+            kept = r.filter_tags([str(tag) for tag in attrs["tags"]])
+            if kept:
+                attrs["tags"] = kept
+            else:
+                del attrs["tags"]
+        if isinstance(attrs.get("add-tags"), str):
+            kept = r.filter_tags(split_tags([attrs["add-tags"]]))
+            if kept:
+                attrs["add-tags"] = ",".join(kept)
+            else:
+                del attrs["add-tags"]
+        if isinstance(attrs.get("items"), list):
+            filter_json_tags(r, attrs["items"])
+
+
+def cmd_add_json(r: Runner) -> int:
+    source = r.args.file
+    try:
+        if source == "-":
+            raw = sys.stdin.read()
+        else:
+            with open(source, encoding="utf-8") as handle:
+                raw = handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        detail = exc.strerror if isinstance(exc, OSError) and exc.strerror else str(exc)
+        raise CliError(f"cannot read {source}: {detail}")
+    try:
+        objects = json.loads(raw)
+    except ValueError as exc:
+        raise CliError(f"invalid JSON: {exc}")
+    url_mod.validate_json(objects)
+    # update objects modify existing items: the same --yes threshold as the batch commands applies (E.3)
+    update_ids = list(dict.fromkeys(obj["id"] for obj in objects if obj.get("operation") == "update"))
+    r.check_yes(len(update_ids))
+    filter_json_tags(r, objects)
+    items = url_mod.count_items("json", objects)
+    if items > url_mod.RATE_LIMIT_ITEMS:
+        raise CliError(f"payload has {items} items; split into batches of {url_mod.RATE_LIMIT_ITEMS}")
+    token = r.token() if url_mod.has_update(objects) else None
+    built = url_mod.build_json(objects, token)
+    titles = [obj["attributes"].get("title") for obj in objects
+              if obj.get("operation", "create") == "create" and obj["attributes"].get("title")]
+    since = r.since()
+    r.send("json", objects, built)
+    r.env["data"] = {"objects": len(objects), "items": items, "top_level_titles": titles}
+    if titles:
+        return r.verify_created(titles, since)
+    if update_ids:
+        predicates = json_update_predicates(objects, r.now)
+        if predicates is None:
+            links = [url_mod.show_url(i) for i in update_ids]
+            return r.finish_verify(
+                lambda: verify.VerifyResult(False, "update payload not verifiable", update_ids, links, []),
+                update_ids)
+        return r.verify_updated(
+            update_ids, lambda item: predicates.get(item.get("uuid", ""), lambda _item: False)(item))
+    return r.finish_verify(lambda: verify.VerifyResult(False, "nothing to verify", [], [], []), [])
+
+
+JSON_CHECKABLE_KEYS = ("title", "notes", "when", "deadline", "completed", "canceled")
+
+
+def json_update_predicates(objects: List[Dict], now: datetime) -> Optional[Dict[str, Callable[[Dict], bool]]]:
+    """Per-id predicate built from each update object's attributes (SPEC E.10).
+
+    Reuses `update_predicate`; `tags` is checked as a subset because Things drops unknown tags
+    silently. Returns None when any update object carries no checkable attribute.
+    """
+    predicates: Dict[str, Callable[[Dict], bool]] = {}
+    for obj in objects:
+        if obj.get("operation") != "update":
+            continue
+        attrs = obj.get("attributes") or {}
+        params: Dict[str, Any] = {key: attrs[key] for key in JSON_CHECKABLE_KEYS if key in attrs}
+        if isinstance(attrs.get("tags"), list) and attrs["tags"]:
+            params["add-tags"] = list(attrs["tags"])
+        if not params:
+            return None
+        predicates[obj["id"]] = update_predicate(params, now)
+    return predicates
+
+
+def cmd_update(r: Runner) -> int:
+    a = r.args
+    item_id = a.id
+    params: Dict[str, Any] = {"id": item_id}
+    for key, value in (("title", a.title), ("notes", a.notes), ("prepend-notes", a.prepend_notes),
+                       ("append-notes", a.append_notes), ("list-id", a.list_id), ("list", a.list),
+                       ("heading-id", a.heading_id), ("heading", a.heading)):
+        if value is not None:
+            params[key] = r.check_container(value, key) if key in CONTAINER_FLAGS else value
+    if a.when is not None:
+        params["when"] = r.check_when(a.when)
+        if a.when == "anytime":
+            r.warn(ANYTIME_WARNING)
+    if a.deadline is not None:
+        params["deadline"] = r.check_deadline(a.deadline)
+    if a.tags:
+        params["tags"] = r.filter_tags(split_tags(a.tags))
+    if a.add_tags:
+        params["add-tags"] = r.filter_tags(split_tags(a.add_tags))
+    for key, value in (("checklist-items", a.checklist), ("prepend-checklist-items", a.prepend_checklist),
+                       ("append-checklist-items", a.append_checklist)):
+        if value:
+            params[key] = split_lines(value)
+    if a.completed:
+        params["completed"] = True
+    if a.reopen:
+        params["completed"] = False
+    if a.canceled:
+        params["canceled"] = True
+    for field in a.clear or []:
+        params[CLEAR_FIELDS[field]] = ""
+    if all(value is None for key, value in params.items() if key != "id"):
+        raise CliError("nothing to update; pass at least one field to change")
+    token = r.token()
+    keep, unknown = r.check_ids([item_id])
+    if not keep:
+        raise CliError(f"no item with id {item_id}", EXIT_USAGE)
+    skipped: List[Dict] = []
+    sensitive = any(key in params for key in ("when", "deadline", "completed", "canceled"))
+    if sensitive and r.repeating_skip(item_id, skipped):
+        raise CliError("all 1 items are repeating to-dos", EXIT_REFUSED, data={"done": [], "skipped": skipped})
+    command = "update-project" if r.kind(item_id) == "project" else "update"
+    built = url_mod.build(command, params, token)
+    r.send(command, params, built)
+    r.env["data"] = {"done": [item_id], "skipped": skipped}
+    return r.verify_updated([item_id], update_predicate(params, r.now, r.item))
+
+
+def batch_update(r: Runner, ids: List[str], make_params: Callable[[str], Optional[Dict[str, Any]]],
+                 predicate: Callable[[Dict], bool], sensitive: bool, skipped: Optional[List[Dict]] = None,
+                 nothing_message: str = "nothing to send") -> int:
+    """Shared flow for complete/cancel/schedule/deadline/tag/move: one URL per id, in order.
+
+    `skipped` may be shared with `make_params` so a caller can record its own skip reasons.
+    """
+    ids = list(dict.fromkeys(ids))   # a repeated id is one write, one verification target
+    r.check_yes(len(ids))
+    token = r.token()
+    keep, unknown = r.check_ids(ids)
+    if skipped is None:
+        skipped = []
+    built: List[Tuple[str, str, Dict[str, Any], str]] = []
+    for item_id in keep:
+        if sensitive and r.repeating_skip(item_id, skipped):
+            continue
+        params = make_params(item_id)
+        if params is None:
+            continue
+        command = "update-project" if r.kind(item_id) == "project" else "update"
+        if command == "update-project":
+            params = adapt_for_project(params)
+        built.append((item_id, command, params, url_mod.build(command, params, token)))
+    if not built:
+        data = {"done": [], "skipped": skipped}
+        if skipped and all(entry.get("reason") == REPEATING_SKIP_REASON for entry in skipped):
+            raise CliError(f"all {len(skipped)} items are repeating to-dos", EXIT_REFUSED, data=data)
+        if unknown and not skipped:
+            raise CliError(f"no item with id {unknown[0]}", EXIT_USAGE, data=data)
+        raise CliError(nothing_message, EXIT_USAGE, data=data)
+    done: List[str] = []
+    for item_id, command, params, built_url in built:
+        r.send(command, params, built_url)
+        done.append(item_id)
+    r.env["data"] = {"done": done, "skipped": skipped}
+    return r.verify_updated(done, predicate)
+
+
+def adapt_for_project(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Projects live in areas: a to-do style list/heading move is invalid for them (exit 1)."""
+    for key in ("list", "list-id", "heading", "heading-id", "checklist-items"):
+        if key in params:
+            raise CliError(f"{params['id']} is a project; use --area/--area-id instead of --{key}")
+    return params
+
+
+def cmd_complete(r: Runner) -> int:
+    return batch_update(r, r.args.ids, lambda item_id: {"id": item_id, "completed": True},
+                        lambda item: item.get("status") == "completed", sensitive=True)
+
+
+def cmd_cancel(r: Runner) -> int:
+    return batch_update(r, r.args.ids, lambda item_id: {"id": item_id, "canceled": True},
+                        lambda item: item.get("status") == "canceled", sensitive=True)
+
+
+def cmd_schedule(r: Runner) -> int:
+    when = r.check_when(r.args.when)
+    if when == "anytime":
+        r.warn(ANYTIME_WARNING)
+    return batch_update(r, r.args.ids, lambda item_id: {"id": item_id, "when": when},
+                        lambda item: when_matches(item, when, r.now), sensitive=True)
+
+
+def cmd_deadline(r: Runner) -> int:
+    a = r.args
+    values: Dict[str, str] = {}
+    if a.clear:
+        value: Optional[str] = ""
+    elif a.date is not None:
+        value = r.check_deadline(a.date, "--date")
+    else:
+        value = None
+        push = (a.push or "").strip()   # add_offset itself is strict about whitespace
+        if not r.db_available():
+            raise CliError("database unavailable: --push needs the current deadline", EXIT_READ)
+        try:
+            dates.add_offset(r.now.date(), push)
+        except ValueError as exc:
+            raise CliError(str(exc))
+    skipped: List[Dict] = []
+
+    def make_params(item_id: str) -> Optional[Dict[str, Any]]:
+        if value is not None:
+            values[item_id] = value
+            return {"id": item_id, "deadline": value}
+        item = r.item(item_id)
+        current = (item or {}).get("deadline")
+        if not current:
+            skipped.append({"id": item_id, "title": (item or {}).get("title"), "reason": "no deadline to push"})
+            r.warn(f"{item_id} has no deadline to push; skipped")
+            return None
+        pushed = dates.add_offset(date.fromisoformat(current), push).isoformat()
+        if date.fromisoformat(pushed) < r.now.date():
+            r.warn(f"{item_id}: new deadline {pushed} is still in the past (was {current}); "
+                   "use --date to pick a future date")
+        values[item_id] = pushed
+        return {"id": item_id, "deadline": pushed}
+
+    def predicate(item: Dict) -> bool:
+        return deadline_matches(item, values.get(item.get("uuid", ""), ""), r.now)
+
+    return batch_update(r, a.ids, make_params, predicate, sensitive=True, skipped=skipped,
+                        nothing_message="no target has a deadline to push")
+
+
+def cmd_tag(r: Runner) -> int:
+    a = r.args
+    tags = r.filter_tags(split_tags(a.add if a.add else a.set))
+    if not tags:
+        raise CliError("no valid tags to apply")
+    key = "add-tags" if a.add else "tags"
+    return batch_update(r, a.ids, lambda item_id: {"id": item_id, key: tags},
+                        lambda item: set(tags) <= set(item.get("tags") or []), sensitive=False)
+
+
+def cmd_move(r: Runner) -> int:
+    a = r.args
+    lists = [(k, v) for k, v in (("list", a.list), ("list-id", a.list_id), ("area", a.area), ("area-id", a.area_id)) if v]
+    headings = [(k, v) for k, v in (("heading", a.heading), ("heading-id", a.heading_id)) if v]
+    for key, value in lists + headings:
+        r.check_container(value, key)
+    if len(lists) > 1 or len(headings) > 1 or not (lists or headings):
+        raise CliError("move needs exactly one of --list/--list-id/--area/--area-id/--heading/--heading-id "
+                       "(--heading* may be combined with one --list*)")
+    if headings and lists and lists[0][0].startswith("area"):
+        raise CliError("--heading* can only be combined with --list/--list-id")
+
+    def make_params(item_id: str) -> Optional[Dict[str, Any]]:
+        params: Dict[str, Any] = {"id": item_id}
+        kind = r.kind(item_id)
+        if kind == "project":
+            if headings or (lists and lists[0][0].startswith("list")):
+                raise CliError(f"{item_id} is a project; use --area/--area-id to move it")
+            params[lists[0][0]] = lists[0][1]
+            return params
+        if lists:
+            key, value = lists[0]
+            params["list-id" if key.endswith("-id") else "list"] = value
+        for key, value in headings:
+            params[key] = value
+        return params
+
+    def predicate(item: Dict) -> bool:
+        for key, value in lists:
+            keys = ("area", "area_title") if item.get("type") == "project" else ("project", "project_title", "area", "area_title")
+            if not container_matches(project_ref(item, r.item), value, keys):
+                return False
+        for _key, value in headings:
+            if not container_matches(item, value, ("heading", "heading_title")):
+                return False
+        return True
+
+    return batch_update(r, a.ids, make_params, predicate, sensitive=False)
+
+
+def cmd_show(r: Runner) -> int:
+    built = url_mod.build("show", {"id": r.args.id})
+    r.send("show", {"id": r.args.id}, built, foreground=True)
+    r.env["ids"] = [r.args.id]
+    r.env["links"] = [url_mod.show_url(r.args.id)]
+    return EXIT_OK
+
+
+# --- argument parsing (E.3) ---------------------------------------------------------------------
+
+def add_global_flags(parser: argparse.ArgumentParser, suppress: bool, skip: Tuple[str, ...] = ()) -> None:
+    """Global flags live on the main parser (real defaults) and on every subparser (SUPPRESS)."""
+    def default(value: Any) -> Any:
+        return argparse.SUPPRESS if suppress else value
+
+    parser.add_argument("--dry-run", action="store_true", default=default(False),
+                        help="build and print masked URLs; send nothing")
+    parser.add_argument("--yes", action="store_true", default=default(False),
+                        help="allow a write that targets more than 10 ids")
+    parser.add_argument("--verify-timeout", type=float, default=default(3.0), metavar="SECONDS",
+                        help="seconds to wait for things.py to confirm a write; 0 disables")
+    parser.add_argument("--transport", choices=transport_mod.TRANSPORTS, default=default(None),
+                        help="override $THINGS_SKILLS_TRANSPORT")
+    parser.add_argument("--config", default=default(None), metavar="PATH", help="config file")
+    parser.add_argument("--now", default=default(None), metavar="ISO",
+                        help="freeze now (YYYY-MM-DDTHH:MM or 'YYYY-MM-DD HH:MM[:SS]')")
+    if "--project" not in skip:
+        parser.add_argument("--project", action="store_true", default=default(False),
+                            help="treat ids as projects when the database cannot tell")
+    parser.add_argument("--json-input", default=default(None), metavar="FILE", help="reserved")
+
+
+def build_parser() -> Parser:
+    parser = Parser(prog="things", description="Things 3 CLI for the things-skills plugin.")
+    parser.add_argument("--version", action="version", version=f"things-skills {__version__}")
+    add_global_flags(parser, suppress=False)
+    subparsers = parser.add_subparsers(dest="command", metavar="SUBCOMMAND", parser_class=Parser)
+
+    def sub(name: str, help_text: str, skip: Tuple[str, ...] = ()) -> argparse.ArgumentParser:
+        subparser = subparsers.add_parser(name, help=help_text, description=help_text)
+        add_global_flags(subparser, suppress=True, skip=skip)
+        return subparser
+
+    for name, help_text in (("inbox", "Inbox items"), ("upcoming", "Upcoming items"),
+                            ("someday", "Someday items"), ("areas", "All areas"), ("tags", "All tags"),
+                            ("overdue", "Open items whose deadline has passed"),
+                            ("doctor", "Environment report"), ("ping", "Check that macOS has a things: handler")):
+        sub(name, help_text)
+    sub("today", "Today items plus a repeating-to-do hint")
+    sub("anytime", "Anytime to-dos").add_argument("--all-types", action="store_true", help="include projects and headings")
+    sub("logbook", "Completed and canceled items").add_argument("--days", type=int, default=7)
+    sub("deadlines", "Open items with a deadline").add_argument("--within", type=int, default=None, metavar="N")
+    sub("projects", "Projects, optionally within an area").add_argument("--area", default=None, metavar="NAME_OR_ID")
+    sub("get", "One item by id").add_argument("id")
+    search = sub("search", "Substring search over title and notes", skip=("--project",))
+    search.add_argument("query")
+    search.add_argument("--status", choices=("open", "completed", "canceled", "all"), default="open")
+    search.add_argument("--area", default=None)
+    search.add_argument("--project", default=None, help="project uuid or title")
+    search.add_argument("--type", choices=("to-do", "project", "all"), default="all")
+    search.add_argument("--limit", type=int, default=20)
+    search.add_argument("--no-synonyms", action="store_true")
+    sub("stale", "Old Anytime to-dos without a start date").add_argument("--days", type=int, default=None)
+    parse_date = sub("parse-date", "Extract when/deadline from natural language")
+    parse_date.add_argument("text")
+    parse_date.add_argument("--kind", choices=("when", "deadline", "auto"), default="auto")
+
+    add = sub("add", "Create a to-do")
+    add.add_argument("title")
+    add.add_argument("--notes")
+    add.add_argument("--when")
+    add.add_argument("--deadline")
+    add.add_argument("--tags", action="append", metavar="A,B")
+    add.add_argument("--checklist", action="append", metavar="ITEM")
+    add.add_argument("--list")
+    add.add_argument("--list-id")
+    add.add_argument("--heading")
+    add.add_argument("--heading-id")
+    add.add_argument("--completed", action="store_true")
+    add.add_argument("--canceled", action="store_true")
+
+    add_project = sub("add-project", "Create a project")
+    add_project.add_argument("title")
+    add_project.add_argument("--notes")
+    add_project.add_argument("--when")
+    add_project.add_argument("--deadline")
+    add_project.add_argument("--tags", action="append", metavar="A,B")
+    add_project.add_argument("--area")
+    add_project.add_argument("--area-id")
+    add_project.add_argument("--todo", action="append", metavar="TITLE")
+
+    sub("add-json", "Bulk create from a JSON file (Things json command)").add_argument("file", help="path or - for stdin")
+
+    update = sub("update", "Update one to-do or project")
+    update.add_argument("id")
+    update.add_argument("--title")
+    update.add_argument("--notes")
+    update.add_argument("--prepend-notes")
+    update.add_argument("--append-notes")
+    update.add_argument("--when")
+    update.add_argument("--deadline")
+    update.add_argument("--tags", action="append", metavar="A,B", help="replace all tags")
+    update.add_argument("--add-tags", action="append", metavar="A,B")
+    update.add_argument("--checklist", action="append", metavar="ITEM", help="replace the checklist")
+    update.add_argument("--prepend-checklist", action="append", metavar="ITEM")
+    update.add_argument("--append-checklist", action="append", metavar="ITEM")
+    update.add_argument("--list")
+    update.add_argument("--list-id")
+    update.add_argument("--heading")
+    update.add_argument("--heading-id")
+    update.add_argument("--completed", action="store_true")
+    update.add_argument("--reopen", action="store_true", help="completed=false")
+    update.add_argument("--canceled", action="store_true")
+    update.add_argument("--clear", action="append", choices=tuple(CLEAR_FIELDS), metavar="FIELD",
+                        help="clear when|deadline|tags|notes|checklist")
+
+    sub("complete", "Complete one or more items").add_argument("ids", nargs="+", metavar="ID")
+    sub("cancel", "Cancel one or more items").add_argument("ids", nargs="+", metavar="ID")
+
+    move = sub("move", "Move items into a project, area or heading")
+    move.add_argument("ids", nargs="+", metavar="ID")
+    for flag in ("--list", "--list-id", "--area", "--area-id", "--heading", "--heading-id"):
+        move.add_argument(flag)
+
+    schedule = sub("schedule", "Set when")
+    schedule.add_argument("ids", nargs="+", metavar="ID")
+    schedule.add_argument("--when", required=True)
+
+    deadline = sub("deadline", "Set, push or clear a deadline")
+    deadline.add_argument("ids", nargs="+", metavar="ID")
+    group = deadline.add_mutually_exclusive_group(required=True)
+    group.add_argument("--date")
+    group.add_argument("--push", metavar="+Nd|+Nw")
+    group.add_argument("--clear", action="store_true")
+
+    tag = sub("tag", "Add or replace tags")
+    tag.add_argument("ids", nargs="+", metavar="ID")
+    tag_group = tag.add_mutually_exclusive_group(required=True)
+    tag_group.add_argument("--add", action="append", metavar="A,B")
+    tag_group.add_argument("--set", action="append", metavar="A,B")
+
+    sub("show", "Reveal an item in Things").add_argument("id")
+    return parser
+
+
+HANDLERS: Dict[str, Callable[[Runner], int]] = {
+    "inbox": cmd_inbox, "today": cmd_today, "upcoming": cmd_upcoming, "anytime": cmd_anytime,
+    "someday": cmd_someday, "logbook": cmd_logbook, "deadlines": cmd_deadlines, "projects": cmd_projects,
+    "areas": cmd_areas, "tags": cmd_tags, "get": cmd_get, "search": cmd_search, "stale": cmd_stale,
+    "overdue": cmd_overdue, "parse-date": cmd_parse_date, "doctor": cmd_doctor, "ping": cmd_ping,
+    "add": cmd_add, "add-project": cmd_add_project, "add-json": cmd_add_json, "update": cmd_update,
+    "complete": cmd_complete, "cancel": cmd_cancel, "move": cmd_move, "schedule": cmd_schedule,
+    "deadline": cmd_deadline, "tag": cmd_tag, "show": cmd_show,
+}
+
+
+# --- entry point ----------------------------------------------------------------------------------
+
+def guess_command(argv: List[str]) -> str:
+    for arg in argv:
+        if arg in HANDLERS:
+            return arg
+    return ""
+
+
+def emit(env: Dict[str, Any], code: int) -> int:
+    for warning in read.take_warnings():   # drained here so warnings survive every error path
+        if warning not in env["warnings"]:
+            env["warnings"].append(warning)
+    if env.get("error"):
+        sys.stderr.write(f"error: {env['error']}\n")
+        sys.stderr.flush()
+    sys.stdout.write(json.dumps(env, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+    return code
+
+
+def fail(env: Dict[str, Any], message: str, code: int, data: Any = None) -> int:
+    env["ok"] = False
+    env["error"] = message
+    if data is not None:
+        env["data"] = data
+    return emit(env, code)
+
+
+def main(argv: List[str]) -> int:
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except CliError as exc:
+        return fail(new_envelope(guess_command(argv)), exc.message, exc.code)
+    except SystemExit as exc:  # --help / --version
+        return exc.code if isinstance(exc.code, int) else 0
+    if not args.command:
+        return fail(new_envelope(""), "missing subcommand; run: things --help", EXIT_USAGE)
+    env = new_envelope(args.command)
+    runner: Optional[Runner] = None
+    try:
+        runner = Runner(args)
+        env = runner.env
+        runner.preload_config()
+        code = HANDLERS[args.command](runner)
+    except CliError as exc:
+        return fail(env, exc.message, exc.code, exc.data)
+    except (TokenError, UrlError, ConfigError) as exc:
+        return fail(env, str(exc), EXIT_USAGE)
+    except TransportError as exc:
+        return fail(env, str(exc), EXIT_TRANSPORT)
+    except ReadError as exc:
+        return fail(env, str(exc), EXIT_READ)
+    except Exception as exc:  # never a traceback on stdout/stderr; the envelope is the contract
+        detail = token_mod.mask_url(str(exc))
+        return fail(env, f"unexpected error: {type(exc).__name__}: {detail}", EXIT_USAGE)
+    return emit(env, code)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,12 @@
+{
+  "name": "things3-skills",
+  "owner": { "name": "wannaFlyKa" },
+  "metadata": { "description": "Claude Code skills for Things 3: capture, close, organize, deadlines and a morning brief. Replies in Chinese or English; works with input in any language the model understands." },
+  "plugins": [
+    {
+      "name": "things",
+      "source": "./plugins/things",
+      "description": "Manage Things 3 to-dos from Claude Code. Replies in Chinese or English; input in any language the model understands. Writes via the Things URL scheme, reads via things.py."
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+fixture ref: v1.0.1
+https://raw.githubusercontent.com/thingsapi/things.py/v1.0.1/tests/main.sqlite

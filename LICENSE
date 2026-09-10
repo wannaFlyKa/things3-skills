@@ -1,0 +1,48 @@
+MIT License
+
+Copyright (c) 2026 wannaFlyKa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------------
+
+Third-party notices
+
+1. things.py 1.0.1 (https://github.com/thingsapi/things.py), Apache License 2.0.
+   things.py is bundled with this project, unmodified, at
+   plugins/things/scripts/vendor/things/ (__init__.py, api.py, database.py),
+   so that enabling the plugin requires no separate installation. Its licence
+   text is included at plugins/things/scripts/vendor/LICENSE-things.py, and
+   plugins/things/scripts/vendor/README.md records the provenance. Those
+   files remain under the Apache License 2.0; the MIT licence above does not
+   apply to them. This project only reads the local Things 3 database through
+   the things.py public API.
+
+2. tests/fixtures/main.sqlite, Apache License 2.0.
+   This file is things.py's own test database (tests/main.sqlite in the
+   things.py repository), copied unmodified from the v1.0.1 tag. The exact
+   source URL is recorded in tests/fixtures/SOURCE.txt. It is included so the
+   unit test suite can run on Linux without Things 3 and without network
+   access. It remains under the Apache License 2.0; a copy of that licence is
+   available at https://www.apache.org/licenses/LICENSE-2.0. The MIT licence
+   above does not apply to this file.
+
+The Things URL scheme and the Things 3 application are products of
+Cultured Code GmbH & Co. KG. This project is not affiliated with or endorsed
+by Cultured Code.

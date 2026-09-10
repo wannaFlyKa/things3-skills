@@ -1,0 +1,39 @@
+"""A simple Python 3 library to read your Things app data."""
+
+__author__ = ["Alexander Willner", "Michael Belfrage"]
+__copyright__ = "2026 Alexander Willner & Michael Belfrage"
+__credits__ = ["Alexander Willner", "Michael Belfrage"]
+__license__ = "Apache License 2.0"
+__version__ = "1.0.1"
+__maintainer__ = ["Alexander Willner", "Michael Belfrage"]
+__email__ = "alex@willner.ws"
+__status__ = "Development"
+
+from things.api import (  # noqa  isort:skip
+    anytime,
+    areas,
+    canceled,
+    checklist_items,
+    complete,
+    completed,
+    deadlines,
+    get,
+    inbox,
+    last,
+    link,
+    logbook,
+    projects,
+    search,
+    show,
+    someday,
+    tags,
+    tasks,
+    today,
+    todos,
+    token,
+    trash,
+    upcoming,
+    url,
+)
+
+from things.database import Database  # noqa

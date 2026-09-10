@@ -1,0 +1,7 @@
+#!/bin/sh
+# macOS gate for the Things skills. Claude Code runs this from the first body line of SKILL.md
+# (`!` context injection) and inlines its stdout: on macOS it prints nothing, elsewhere the sentence
+# below. It ALWAYS exits 0: a non-zero exit aborts the skill silently, with no message to the user,
+# so the sentence itself tells the model what to do. Byte-identical in all six skills.
+[ "$(uname)" = Darwin ] || echo "Things skills run only on macOS: tell the user this plugin needs a Mac and stop; run nothing else."
+exit 0

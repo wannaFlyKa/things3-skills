@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.things-skills/
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+tests/fixtures/*.sqlite-shm
+tests/fixtures/*.sqlite-wal
+config.json
+auth-token
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/

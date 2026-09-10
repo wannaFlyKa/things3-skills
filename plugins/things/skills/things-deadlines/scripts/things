@@ -1,0 +1,4 @@
+#!/bin/sh
+# Wrapper: forwards to the shared CLI at plugins/things/scripts/things
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$here/../../../scripts/things" "$@"

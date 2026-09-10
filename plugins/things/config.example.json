@@ -1,0 +1,25 @@
+{
+  "areas": ["Work", "Personal", "Career"],
+  "routing_hints": [
+    {"pattern": "报销", "area": "Work", "project": null, "regex": false},
+    {"pattern": "expense", "area": "Work", "project": null, "regex": false},
+    {"pattern": "周报", "area": "Work", "project": null, "regex": false},
+    {"pattern": "weekly report", "area": "Work", "project": null, "regex": false},
+    {"pattern": "\\b(gym)\\b|健身|跑步", "area": "Personal", "project": null, "regex": true},
+    {"pattern": "买", "area": "Personal", "project": null, "regex": false},
+    {"pattern": "\\b(dentist|doctor)\\b|医生|牙医", "area": "Personal", "project": null, "regex": true},
+    {"pattern": "面试|interview|简历|resume", "area": "Career", "project": null, "regex": true}
+  ],
+  "tags": ["@calls", "@errands", "@deep", "@waiting"],
+  "synonyms": [
+    ["报销", "expense", "reimbursement"],
+    ["周报", "weekly report"],
+    ["医生", "牙医", "doctor", "dentist"]
+  ],
+  "today_cap": 6,
+  "stale_days": 30,
+  "deadline_lead_days": 3,
+  "default_reminder_time": "09:00",
+  "language": "auto",
+  "someday_resurface_days": 90
+}

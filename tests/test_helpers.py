@@ -436,7 +436,10 @@ def test_ddl_report_invalid_now_is_a_json_error_envelope(run_helper):
                                          ("push it a day", "+1d"), ("推后十二天", "+12d"),
                                          # finding 31: English 'push back by' is a postponement, not an earlier marker
                                          ("push the deadline back by 3 days", "+3d"), ("move the deadline back by a week", "+1w"),
-                                         ("提前一周", "-1w"), ("bring forward 2d", "-2d"), ("two days earlier", "-2d")])
+                                         ("提前一周", "-1w"), ("bring forward 2d", "-2d"), ("two days earlier", "-2d"),
+                                         # an object between verb and particle still means earlier
+                                         ("bring it forward two days", "-2d"), ("pull it in 3 days", "-3d"),
+                                         ("bring the deadline forward 1 week", "-1w"), ("pull my review in 2 days", "-2d")])
 def test_ddl_push_spec_conversion(run_helper, phrase, spec):
     code, out, err = run_helper("ddl_report.py", "--push-spec", phrase)
     assert code == 0, err
@@ -583,6 +586,22 @@ def test_review_route_missing_is_distinguished_from_no_hint():
     assert review.resolve_route(ctx, {"title": "nothing", "notes": ""})[0] == "no routing hint matched, pick an area (Home)"
     ctx["lang"] = "zh"
     assert review.resolve_route(ctx, {"title": "报销", "notes": ""})[0] == "路由规则命中领域「Work」，但 Things 里没有这个领域：请先创建，或从（Home）中选一个领域"
+
+
+def test_review_location_names_the_project_of_a_to_do_under_a_heading():
+    """Live finding: things.py leaves project_title NULL under a heading, so the line named the heading."""
+    review = load_module("review.py")
+    from datetime import date as d
+    ctx = {"lang": "en", "today": d(2026, 9, 9), "today_ids": set(), "evening_ids": set(),
+           "project_title_by_uuid": {"P1": "Osprey EMR7 Upgrade"},
+           "container_of": lambda item: ("P1" if item.get("heading") == "H1" else item.get("project"), None)}
+    under_heading = {"uuid": "t1", "start": "Anytime", "start_date": None,
+                     "heading": "H1", "heading_title": "1. Week of 2026-09-08"}
+    assert review.location(under_heading, ctx) == "Anytime · Osprey EMR7 Upgrade"
+    unknown_heading = dict(under_heading, heading="H9")
+    assert review.location(unknown_heading, ctx) == "Anytime · 1. Week of 2026-09-08", "heading title as fallback"
+    assert review.location({"uuid": "t2", "start": "Anytime", "area_title": "Home"}, ctx) == "Anytime · Home"
+    assert review.location({"uuid": "t3", "start": "Anytime"}, ctx) == "Anytime"
 
 
 def test_review_evening_check_skips_inbox_and_someday_items():

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `things-deadlines`: "bring it forward two days" and "pull the deadline in a
+  week" now give a negative offset. The earlier-marker patterns only matched
+  `bring forward` / `pull in` with nothing in between, so an object between verb
+  and particle silently pushed the deadline later instead of earlier.
+- `things-organize`: a proposal for a to-do that sits under a project heading now
+  names the project, not the heading. things.py leaves `project_title` empty for
+  those rows, which made the location line read `Upcoming · 1. Week of ...`.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added

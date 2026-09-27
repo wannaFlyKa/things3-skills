@@ -7,12 +7,16 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-deadlines
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Deadline control for Things 3. Reads go through the shared CLI; writes happen only after the user confirms.
 Pre-approved: `${CLAUDE_SKILL_DIR}/scripts/ddl_report.py` and the read subcommands `parse-date`, `search` of
 `${CLAUDE_SKILL_DIR}/scripts/things`. The write subcommands `schedule` and `deadline` are NOT pre-approved: Claude Code
-asks the user's permission for each, which is the intended second safety net. Never call `cat`, `python3 -c`, pipes or the
+asks the user's permission for each; Codex uses its normal approval and sandbox policy. This is only a second safety net;
+always require the skill's explicit user confirmation. Never call `cat`, `python3 -c`, pipes or the
 Write tool.
 
 ## Language

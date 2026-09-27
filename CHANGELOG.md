@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
+### Added
+
+- A Codex plugin manifest at `plugins/things/.codex-plugin/plugin.json` with
+  user-facing metadata and the existing six-skill directory.
+- A repo-scoped Codex marketplace at `.agents/plugins/marketplace.json`, so the
+  plugin can be installed as `things@things3-skills` from GitHub or a local clone.
+- Codex runtime guidance in every skill: `${CLAUDE_SKILL_DIR}` still works in
+  Claude Code, while Codex resolves it to the directory containing `SKILL.md`.
+- Manifest and skill validation coverage for the Codex package.
+
+### Changed
+
+- Installation, setup, hand-off, and permission guidance now covers both Codex
+  and Claude Code, including `$things-*` and `/things:things-*` invocations.
+
 ## [0.1.0] - 2026-09-09
 
 Initial public release. Everything before this tag was pre-release iteration; the
@@ -81,6 +98,7 @@ audit that preceded publication is recorded in the git history, not here.
   (also for `add-json` update payloads); an unfilled `<PLACEHOLDER>` in a list,
   area or heading option is refused before anything is sent.
 
-<!-- Create the tag before the first push: `git tag -a v0.1.0 -m "things3-skills 0.1.0"` on the release commit, then `git push origin main --tags`. -->
-[Unreleased]: https://github.com/wannaFlyKa/things3-skills/compare/v0.1.0...HEAD
+<!-- Create the tag on the release commit: `git tag -a v0.2.0 -m "things3-skills 0.2.0"`, then `git push origin main --tags`. -->
+[Unreleased]: https://github.com/wannaFlyKa/things3-skills/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wannaFlyKa/things3-skills/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wannaFlyKa/things3-skills/releases/tag/v0.1.0

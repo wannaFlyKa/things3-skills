@@ -7,6 +7,9 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-organize
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Weekly review for Things 3: seven read-only checks, one numbered proposal, writes only for the numbers
@@ -14,8 +17,9 @@ the user picks. Never pass `--yes`; never delete anything (`cancel` and moving t
 strongest actions); never print, log or ask for the auth token. All shell work goes through
 `${CLAUDE_SKILL_DIR}/scripts/review.py` (read-only helper) and `${CLAUDE_SKILL_DIR}/scripts/things` (CLI).
 Pre-approved: the helper and the read subcommands `get` / `search`. The write subcommands the helper prints
-(`schedule`, `move`, `deadline`, `tag`, `cancel`, `complete`, `update`, `add`) are NOT pre-approved: Claude Code
-asks the user's permission for each, which is the intended second safety net.
+(`schedule`, `move`, `deadline`, `tag`, `cancel`, `complete`, `update`, `add`) are NOT pre-approved in Claude Code;
+Codex uses its normal approval and sandbox policy. This is only a second safety net: always require the skill's
+explicit user confirmation.
 
 ## Reply language
 Pass `--lang auto --text "<the user's words>"` to the helper: it applies `config.language` and otherwise detects

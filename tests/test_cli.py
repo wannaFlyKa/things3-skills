@@ -244,7 +244,7 @@ def test_doctor_on_linux(run_cli):
     assert os.path.realpath(data["things_py"].pop("path")) == os.path.realpath(os.path.join(SCRIPTS, "vendor", "things"))
     assert data["things_py"] == {"installed": True, "version": "1.0.1", "source": "bundled"}
     assert data["config"]["present"] is False and data["config"]["valid"] is True and data["config"]["missing_tags"] == []
-    assert data["cli_version"] == "0.1.0"
+    assert data["cli_version"] == "0.2.0"
     assert set(data) == {"platform", "python", "transport", "database", "token", "things_py", "config", "cli_version"}
 
 

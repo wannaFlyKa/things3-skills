@@ -1,0 +1,20 @@
+{
+  "name": "things3-skills",
+  "interface": {
+    "displayName": "Things3 Skills"
+  },
+  "plugins": [
+    {
+      "name": "things",
+      "source": {
+        "source": "local",
+        "path": "./plugins/things"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

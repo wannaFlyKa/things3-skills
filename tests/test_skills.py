@@ -185,6 +185,14 @@ def test_first_body_line_is_the_macos_gate_byte_exact(name):
     assert b"exit 1; }" not in raw and b'[ "$(uname)"' not in raw, "inline shell gate is not allowed in SKILL.md"
 
 
+@pytest.mark.parametrize("name", SKILLS)
+def test_body_explains_codex_runtime_path_resolution(name):
+    text = read_skill(name)
+    assert "In Codex, resolve it to the" in text
+    assert "absolute directory containing this `SKILL.md`" in text
+    assert "run `scripts/osgate`" in text
+
+
 def osgate_path(name):
     return os.path.join(SKILLS_DIR, name, "scripts", "osgate")
 
@@ -281,7 +289,7 @@ def test_wrapper_runs_doctor_on_this_box(name, tmp_path):
     payload = json.loads(proc.stdout)
     assert payload["ok"] is True and payload["command"] == "doctor"
     assert payload["data"]["database"]["status"] == "fixture"
-    assert payload["data"]["cli_version"] == "0.1.0"
+    assert payload["data"]["cli_version"] == "0.2.0"
     assert "Traceback" not in proc.stderr
 
 

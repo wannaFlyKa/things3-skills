@@ -7,12 +7,16 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-capture
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Create to-dos (or a project with headings) from free text. Pre-approved: `${CLAUDE_SKILL_DIR}/scripts/plan.py`
 and the read subcommand `search` of `${CLAUDE_SKILL_DIR}/scripts/things`. The write commands the planner prints (`add`, `add-project`,
-`add-json`) are NOT pre-approved: Claude Code asks the user for permission when you run them, which is the
-second confirmation by design. Run nothing else (no cat, python3 -c, printf, no Write tool). The planner does
+`add-json`) are NOT pre-approved in Claude Code; Codex uses its normal approval and sandbox policy. This is only a
+second safety net: always require the skill's explicit user confirmation. Run nothing else (no cat, python3 -c,
+printf, no Write tool). The planner does
 all deterministic work; you split the text, show the plan, ask, run the printed commands, report.
 
 ## 1. Split the input into candidates (no tool)

@@ -107,7 +107,7 @@ def test_setup_check_json_no_create_config(run_helper, tmp_path):
     assert report["config_action"] == "missing"
     assert not (tmp_path / ".config" / "things-skills" / "config.json").exists()
     assert report["doctor"]["database"]["status"] == "fixture"
-    assert report["doctor"]["cli_version"] == "0.1.0"
+    assert report["doctor"]["cli_version"] == "0.2.0"
     assert "vKkylosuSuGwxrz7qcklOw" not in out and "vKkylosuSuGwxrz7qcklOw" not in err, "token value never printed"
     assert set(report["things"]["tags"]) == {"Errand", "Home", "Important", "Office", "Pending"}
     assert set(report["things"]["areas"]) == {"Area 1", "Area 2", "Area 3"}

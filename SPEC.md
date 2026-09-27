@@ -1,6 +1,6 @@
 # things3-skills SPEC
 
-Version 0.1.0 of the specification. Source of truth for Phase 2 implementers and the Phase 3 tester.
+Version 0.2.0 of the specification. Source of truth for implementers and testers.
 Where `docs/BUILD_PROMPT.md` left a choice open, this file DECIDES it; such lines are marked **DECISION**.
 Facts were verified on 2026-09-09 against the Things URL scheme page
 (https://culturedcode.com/things/support/articles/2803573/), the things.py 1.0.1 API page and source
@@ -225,7 +225,7 @@ nothing ever calls `open` unless `platform.system() == "Darwin"` at call time. A
 The CLI file `plugins/things/scripts/things` inserts its own directory into `sys.path[0]` before `import things_lib`. `plugins/things/scripts/vendor/` (the bundled things.py, section B) is added to `sys.path` only by `read.py`'s import helper, lazily, at the first read.
 
 ### C.1 `__init__.py`
-`__version__ = "0.1.0"`. Nothing else imported eagerly.
+`__version__ = "0.2.0"`. Nothing else imported eagerly.
 
 ### C.2 `config.py`
 ```
@@ -451,7 +451,7 @@ No exception ever escapes as a traceback: anything not mapped in E.2 becomes `ok
 | `--now ISO` | str | wall clock | freezes now for date math, verification windows and every date-relative read (`today`, `upcoming`, `overdue`, `stale`, `logbook`, `days_until_deadline`); accepts `YYYY-MM-DDTHH:MM` or `YYYY-MM-DD HH:MM[:SS]` local |
 | `--project` | flag | off | treat the given id(s) as projects when the database cannot tell (uses `update-project`) |
 | `--json-input FILE` | str | | reserved, not implemented yet |
-| `--version` | flag | | prints `things-skills 0.1.0` and exits 0 |
+| `--version` | flag | | prints `things-skills 0.2.0` and exits 0 |
 
 ### E.4 Read subcommands (`things.py`; exit 3 when unavailable). `data` is a list of enriched task dicts (B.2 + `repeating`, `link`, `days_until_deadline`) unless stated.
 
@@ -483,7 +483,7 @@ No exception ever escapes as a traceback: anything not mapped in E.2 becomes `ok
  "token": {"path": "~/.config/things-skills/auth-token", "present": bool, "empty": bool, "mode_ok": bool|null, "mode": "0600"|null},
  "things_py": {"installed": bool, "version": str|null, "source": "bundled"|"system"|null, "path": str|null},
  "config": {"path": str, "present": bool, "valid": bool, "missing_tags": [str]|null},
- "cli_version": "0.1.0"}
+ "cli_version": "0.2.0"}
 ```
 `missing_tags` = tags in `config.tags` not present in `read.tag_titles()`; `null` when the database is unavailable. `doctor` never reads the token value into the output.
 `things_py` is `read.things_py_info()` verbatim (**DECISION**, section B): `installed` and `version` keep their meaning; `source` is `"bundled"` when the copy under `plugins/things/scripts/vendor/things/` was imported (the expected value), `"system"` when `<scripts>/vendor/things/__init__.py` was absent (vendor directory missing or incomplete) and a system-installed things.py was used, or when a module named `things` from outside the vendor directory was already in `sys.modules`, `null` when nothing could be imported (this includes a bundled copy that exists but fails to import, e.g. a `SyntaxError`: it never falls back to a system copy); `path` is the directory of the imported package or `null`.
@@ -704,7 +704,7 @@ Interaction protocol for every writing skill: (1) gather reads; (2) print a comp
 
 | Skill | Triggers (description must contain) | CLI calls | Body must include |
 |---|---|---|---|
-| `things-setup` | "set up Things", "check Things", "things doctor", "配置 Things", "检查 Things", "Things 设置" | `doctor`, `ping`, `tags`, `areas` | Step list: macOS (detail is the macOS product version), Things installed (`ping` `sent: true`; under a `dry`/`record` transport the row reads "not attempted" and the fix is to unset `THINGS_SKILLS_TRANSPORT`, not to install Things; `setup_check.py` never writes the `record` outbox; when `doctor` yields no envelope rows 3-7 read "not checked"; when the config file is invalid rows 2 and 7 read "not checked" and point at row 6, the App Store fix requires `ping` exit 2 or transport `open`), things.py importable (`doctor` `data.things_py`; **DECISION**: pass detail `bundled 1.0.1` / `system 1.0.1` (ZH `内置 1.0.1` / `系统 1.0.1`) from `source` and `version`; fail detail `cannot import things.py (bundled copy missing or damaged)` / ZH `无法导入 things.py（内置副本缺失或损坏）`, fix: reinstall or update the plugin, `/plugin update things@things3-skills` or re-clone the repository; NEVER a pip command), database readable (else print the Full Disk Access steps for the terminal app: System Settings → Privacy & Security → Full Disk Access → add the app → restart it), token file present and non-empty (path and how to obtain), config exists (copy `config.example.json` to `~/.config/things-skills/config.json` if not; when the example is absent, as in a copy-the-folders install, write `config.DEFAULTS` instead), every `config.tags` tag exists (`doctor.data.config.missing_tags`; right after the config was created from the example, or while `config.tags` still equals the `config.example.json` vocabulary, ask the user to edit `config.tags` instead, they are the example vocabulary; for a user's own tag names ask them to create the tags in Things, never create). One-screen status table with ✅/❌; "Next steps" numbers only the failed rows, advice on a passed row is a bullet. |
+| `things-setup` | "set up Things", "check Things", "things doctor", "配置 Things", "检查 Things", "Things 设置" | `doctor`, `ping`, `tags`, `areas` | Step list: macOS (detail is the macOS product version), Things installed (`ping` `sent: true`; under a `dry`/`record` transport the row reads "not attempted" and the fix is to unset `THINGS_SKILLS_TRANSPORT`, not to install Things; `setup_check.py` never writes the `record` outbox; when `doctor` yields no envelope rows 3-7 read "not checked"; when the config file is invalid rows 2 and 7 read "not checked" and point at row 6, the App Store fix requires `ping` exit 2 or transport `open`), things.py importable (`doctor` `data.things_py`; **DECISION**: pass detail `bundled 1.0.1` / `system 1.0.1` (ZH `内置 1.0.1` / `系统 1.0.1`) from `source` and `version`; fail detail `cannot import things.py (bundled copy missing or damaged)` / ZH `无法导入 things.py（内置副本缺失或损坏）`, fix: reinstall or update the plugin, `codex plugin add things@things3-skills`, `/plugin update things@things3-skills`, or re-clone the repository; NEVER a pip command), database readable (else print the Full Disk Access steps for the app running Codex or Claude Code: System Settings → Privacy & Security → Full Disk Access → add the app → restart it), token file present and non-empty (path and how to obtain), config exists (copy `config.example.json` to `~/.config/things-skills/config.json` if not; when the example is absent, as in a copy-the-folders install, write `config.DEFAULTS` instead), every `config.tags` tag exists (`doctor.data.config.missing_tags`; right after the config was created from the example, or while `config.tags` still equals the `config.example.json` vocabulary, ask the user to edit `config.tags` instead, they are the example vocabulary; for a user's own tag names ask them to create the tags in Things, never create). One-screen status table with ✅/❌; "Next steps" numbers only the failed rows, advice on a passed row is a bullet. |
 | `things-capture` | "add to Things", "capture", "new to-do", "remind me to", "记到 Things", "添加任务", "新建待办", "帮我记一下", "直接建" | `parse-date`, `areas`, `projects`, `tags`, `add`, `add-project`, `add-json`, `search` (duplicate check) | Parse one or many tasks; title in the user's language as written; notes = context + source link; `when`/`deadline` via `parse-date` (never invent deadlines; if a date is given without start-or-deadline intent, ask ONE short question); tags only from `config.tags` that exist; area/project via `routing_hints` and wording (personal and work items routed independently); checklist 3-8 concrete steps, never padded; multi-phase goal -> project with headings via `add-json` (write the file to `${TMPDIR:-/tmp}/things-capture-<epoch>.json`); preview table columns: title, list, when, deadline, tags, checklist count; honours "直接建"/`--yes`. `plan.py` prints options first as `--flag=value` and the title after `--` (so a title such as `-draft` cannot be read as an option); a candidate whose start-or-deadline question is open gets NO command and is listed under `blocked[]` (Markdown: a `# [n] ... blocked` comment); payload files are written with mode 0600 and those older than one day are pruned from `$TMPDIR`; bad input returns `{"ok": false, "error": ...}` exit 1; newline titles are flattened; a dropped tag warning lists the allowed names and a missing `@`/`#` prefix is forgiven. Cites: when vs deadline; verb-first to-dos, outcome-titled projects; checklist vs project. |
 | `things-close` | "done with", "finished", "mark complete", "close", "完成了", "关掉", "搞定了", "取消" | `search` (with synonyms, `--status open`), `get`, `complete`, `cancel` | Search each described item by title/notes substrings and synonyms in both languages; rank; show top matches numbered with list and dates; ask for the set (`1,3`, `all`); re-run `candidates.py --pick <numbers> --action complete|cancel`, which prints only the picked non-repeating ids in batches of 10, one line per batch piped into `report.py`; `candidates.py` prints NO write command before a pick; explain and skip repeating items using `data.skipped`; offer `cancel` when the user says dropped/取消/won't do (ask when the verb may describe the appointment itself, e.g. 取消牙医预约); never `--yes`. `report.py` renders a `--dry-run` envelope with a leading "Dry run" line, "Would complete" / "Would cancel" headings and the masked `urls`; the list column reads Today/Upcoming for dated items and the project of a to-do under a heading (resolved through `get <heading>`, one lookup per heading; the heading title if that lookup fails). Cites: Today is a promise; Inbox is for capture only. |
 | `things-organize` | "weekly review", "organize Things", "inbox zero", "clean up my tasks", "整理", "周回顾", "清空收件箱", "整理 Things" | `inbox`, `today`, `anytime`, `someday`, `stale`, `overdue`, `deadlines`, `projects`, `areas`, `tags`, then `move`, `schedule`, `deadline`, `tag`, `cancel`, `complete`, `update` | Scope arg (`inbox`, `today`, `all`, area/project name; default full review). Dry-run report first with the seven checks (inbox zero with "do now" flag for < 2 min; Today overload vs `today_cap` (count only `type == "to-do"` items; projects shown in Today do not count) keeping items with deadline within `deadline_lead_days`; stale via `stale --days stale_days` -> Someday / cancel / 15-minute "decide" to-do; deadline sanity: deadline before start, past deadlines, deadline within lead time and no start; tag hygiene: no area/project, tags outside vocabulary; evening candidates -> `when=evening`; Someday items older than `someday_resurface_days` resurfaced). Numbered proposal; user answers with numbers; apply in batches (the CLI rate-limits); always preview; never `--yes`. Cites: Inbox one week max; Someday is a parking lot; cap Today. |
@@ -735,7 +735,7 @@ Interaction protocol for every writing skill: (1) gather reads; (2) print a comp
 ```json
 {
   "name": "things",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Things 3 skills for Claude Code: capture, close, organize, deadlines, today. Replies in Chinese or English; input in any language the model understands. macOS only.",
   "author": { "name": "wannaFlyKa" },
   "license": "MIT",
@@ -744,7 +744,15 @@ Interaction protocol for every writing skill: (1) gather reads; (2) print a comp
 ```
 Skills are auto-discovered from `plugins/things/skills/*/SKILL.md`; skill names as invoked: `/things:things-setup` etc.
 
-Plugin tree (everything a user receives): `plugins/things/.claude-plugin/plugin.json`, `plugins/things/config.example.json`, `plugins/things/skills/<six skills>/` (each with `SKILL.md`, the `scripts/things` wrapper, the `scripts/osgate` gate script, and that skill's helper scripts from H.1: `brief.py`, `plan.py`, `candidates.py`, `report.py`, `ddl_report.py`, `review.py`, `setup_check.py`), `plugins/things/scripts/things` (CLI file), `plugins/things/scripts/things_lib/*.py`, and `plugins/things/scripts/vendor/` (`things/__init__.py`, `things/api.py`, `things/database.py`, `LICENSE-things.py`, `README.md`; the bundled things.py 1.0.1, section B). No install step outside Claude Code.
+Codex uses `.agents/plugins/marketplace.json` with marketplace name `things3-skills`, a local source
+at `./plugins/things`, `AVAILABLE` / `ON_INSTALL` policy, and category `Productivity`. The plugin's
+`plugins/things/.codex-plugin/plugin.json` has name `things`, the same version as `things_lib`,
+`skills: "./skills/"`, MIT metadata, and the required `interface` fields. Codex invokes the skills
+as `$things-setup`, `$things-capture`, and so on. Each `SKILL.md` keeps Claude Code's
+`${CLAUDE_SKILL_DIR}` commands and explicitly tells Codex to resolve that placeholder to the
+absolute directory containing the loaded `SKILL.md`; Codex runs `scripts/osgate` itself.
+
+Plugin tree (everything a user receives): the Claude and Codex manifests, `plugins/things/config.example.json`, `plugins/things/skills/<six skills>/` (each with `SKILL.md`, the `scripts/things` wrapper, the `scripts/osgate` gate script, and that skill's helper scripts from H.1: `brief.py`, `plan.py`, `candidates.py`, `report.py`, `ddl_report.py`, `review.py`, `setup_check.py`), `plugins/things/scripts/things` (CLI file), `plugins/things/scripts/things_lib/*.py`, and `plugins/things/scripts/vendor/` (`things/__init__.py`, `things/api.py`, `things/database.py`, `LICENSE-things.py`, `README.md`; the bundled things.py 1.0.1, section B). No runtime dependency installation is required.
 
 ---
 

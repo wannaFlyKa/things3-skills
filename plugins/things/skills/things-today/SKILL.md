@@ -7,6 +7,9 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-today
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Read-only morning brief. Nothing in this skill writes to Things.

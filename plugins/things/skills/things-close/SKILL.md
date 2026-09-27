@@ -7,13 +7,16 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-close: complete or cancel what got done
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Every shell call goes through `${CLAUDE_SKILL_DIR}/scripts/things` (the shared CLI) or the two helpers in
 `${CLAUDE_SKILL_DIR}/scripts/`; use nothing else (no cat, printf, python3 -c). Pre-approved: `candidates.py`,
 `report.py` and the read subcommands `things search` / `things get`. The writes `things complete` and
-`things cancel` are NOT pre-approved: Claude Code asks the user for permission when you run them, which is the
-second confirmation by design. Never pass `--yes`. Nothing is ever deleted: `cancel` is the strongest action
+`things cancel` are NOT pre-approved in Claude Code; Codex uses its normal approval and sandbox policy. This is
+only a second safety net: always require the skill's explicit user confirmation. Never pass `--yes`. Nothing is ever deleted: `cancel` is the strongest action
 this skill takes. Never print, log or ask for the auth token.
 
 ## 1. Understand the request

@@ -7,6 +7,9 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/osgate) Bash(${CLAUDE_SKILL_DIR}
 
 # things-setup
 
+Runtime compatibility: Claude Code expands `${CLAUDE_SKILL_DIR}` automatically. In Codex, resolve it to the
+absolute directory containing this `SKILL.md`; run `scripts/osgate` from that directory once before continuing.
+
 If the line above reads "Things skills run only on macOS", tell the user this plugin needs a Mac and stop; run nothing else.
 
 Health check for the things-skills plugin. It sends NO writes to Things and never writes the `record` outbox. The
@@ -48,7 +51,8 @@ If the helper itself fails, fall back to `${CLAUDE_SKILL_DIR}/scripts/things doc
    (Chinese: `系统 1.0.1`) the row is green but the bundled copy under `scripts/vendor/` was not found and a
    system-installed things.py was used instead; mention that and relay the same reinstall/update fix below.
    ❌ means the bundled copy is missing or damaged: relay the row's fix word for word, reinstall or update
-   the plugin (`/plugin update things@things3-skills` in Claude Code, or re-clone the repository), then
+   the plugin (`codex plugin add things@things3-skills` in Codex, `/plugin update things@things3-skills` in Claude
+   Code, or re-clone the repository), then
    rerun the check. Never suggest a package installer.
 4. **Database readable** - `data.database.status == "readable"`. ❌: relay the Full Disk Access steps from the
    fix, naming the terminal app the helper detected (System Settings -> Privacy & Security -> Full Disk Access
@@ -73,7 +77,8 @@ If the helper itself fails, fall back to `${CLAUDE_SKILL_DIR}/scripts/things doc
 
 ## Step 3 - rerun to verify
 After the user reports a fix, run the same command again and show the new table. Stop when every row is ✅
-or the user stops. Once green, suggest `/things:things-today` as the first real skill to try.
+or the user stops. Once green, suggest `$things-today` in Codex or `/things:things-today` in Claude Code as the
+first real skill to try.
 
 ## Envelope fields (when calling the CLI directly)
 `${CLAUDE_SKILL_DIR}/scripts/things doctor` and `${CLAUDE_SKILL_DIR}/scripts/things ping` print one JSON

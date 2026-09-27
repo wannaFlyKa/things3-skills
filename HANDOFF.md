@@ -4,7 +4,7 @@ A step-by-step checklist for the first run of things3-skills on a Mac, with the 
 every command. The code was developed and unit-tested on Linux without Things 3; these five steps
 are what remains once the repository is on a Mac. They are in order; do not skip ahead. Every
 command is meant to be run from the repository root unless it starts with `/`, which is a Claude
-Code slash command.
+Code slash command, or `$`, which names a Codex skill.
 
 Before you start, clone the repository and enter it:
 
@@ -16,7 +16,7 @@ cd ~/Developer/things3-skills
 Adjust the destination as you like; every later step assumes you are in that directory.
 
 Expected: `ls` shows `plugins/`, `tests/`, `docs/`, `README.md`, `HANDOFF.md`, `LICENSE`,
-`CHANGELOG.md`, `SPEC.md`, `pytest.ini`, `.gitignore`, and `.claude-plugin/`.
+`CHANGELOG.md`, `SPEC.md`, `pytest.ini`, `.gitignore`, `.agents/`, and `.claude-plugin/`.
 `ls plugins/things/scripts/vendor/things` shows `__init__.py`, `api.py` and `database.py`: that is
 things.py 1.0.1, bundled, so there is nothing to `pip install` on the Mac.
 `ls -l tests/fixtures/main.sqlite` shows 180224 bytes. `git status` is clean (sidecar files such
@@ -30,7 +30,7 @@ with `error:`.
 ## Step 1: create the token file
 
 In Things: Settings → General → Enable Things URLs → Manage → copy the token to the clipboard.
-Then, without pasting the token anywhere else (not into Claude Code, not into a shell history):
+Then, without pasting the token anywhere else (not into Codex or Claude Code, and not into shell history):
 
 ```
 mkdir -p ~/.config/things-skills
@@ -56,7 +56,7 @@ the token source explicit and works without Full Disk Access.
 If it fails: `wc -c` prints 0 when the clipboard was empty; copy the token again and rerun the
 `pbpaste` line. If `ls -l` shows anything other than `-rw-------`, run
 `chmod 600 ~/.config/things-skills/auth-token`. Never `cat` the file in a shared screen, and
-never paste the token into a Claude Code conversation; the skills are written to never ask for it.
+never paste the token into an agent conversation; the skills are written to never ask for it.
 
 ## Step 2: grant Full Disk Access to the terminal app
 
@@ -65,8 +65,8 @@ Reads go through things.py, which opens the Things database under
 the app running the process has Full Disk Access.
 
 1. System Settings → Privacy & Security → Full Disk Access.
-2. Click `+`, add the app you run Claude Code from (Terminal, iTerm2, Warp, VS Code, Cursor,
-   the Claude desktop app, whichever), and make sure its toggle is on.
+2. Click `+`, add the app you run Codex or Claude Code from (ChatGPT/Codex desktop, Terminal,
+   iTerm2, Warp, VS Code, Cursor, or the Claude desktop app), and make sure its toggle is on.
 3. Quit that app completely (Cmd-Q, not just the window) and reopen it. The permission only
    applies to processes started after the grant.
 4. Open Things 3 at least once so the database exists.
@@ -103,7 +103,7 @@ Expected in the `doctor` output (all inside `data`):
 | `things_py.installed` / `things_py.version` / `things_py.source` | `true` / `"1.0.1"` / `"bundled"` (`things_py.path` ends in `plugins/things/scripts/vendor/things`) |
 | `config.present` / `config.valid` | `true` / `true` (`present` is `false` until step 4 creates the file; that is fine here) |
 | `config.missing_tags` | `[]` once the config exists (null while the database is unreadable) |
-| `cli_version` | `"0.1.0"` |
+| `cli_version` | `"0.2.0"` |
 
 Expected in the `ping` output: `"sent": true`, exit 0. That means macOS found a handler for
 `things:` URLs. Things may briefly react; `ping` sends only `things:///version`.
@@ -134,7 +134,17 @@ missing, the warning `auth token not found; dry-run continues with a placeholder
 
 ## Step 4: install the plugin and run things-setup
 
-In Claude Code, started from the terminal app you granted access to in step 2:
+For Codex, register this clone as a local marketplace and install the plugin:
+
+```
+codex plugin marketplace add ~/Developer/things3-skills
+codex plugin add things@things3-skills
+```
+
+Start a new Codex chat after installation, then run `$things-setup` or say "check Things". The new
+chat is important because an existing chat does not reload newly installed skills.
+
+For Claude Code, started from the app you granted access to in step 2:
 
 ```
 /plugin marketplace add ~/Developer/things3-skills
@@ -142,7 +152,7 @@ In Claude Code, started from the terminal app you granted access to in step 2:
 /things:things-setup
 ```
 
-Alternative without the marketplace: copy the six folders from `plugins/things/skills/` into
+Claude Code alternative without the marketplace: copy the six folders from `plugins/things/skills/` into
 `~/.claude/skills/` and `plugins/things/scripts/` to `~/.claude/scripts/` (the skill wrappers
 look for the shared CLI three directory levels up), then invoke `/things-setup`. In that layout
 `setup_check.py` cannot find `plugins/things/config.example.json`, so it writes the built-in
@@ -162,13 +172,16 @@ makes the token explicit.
 
 Then edit `~/.config/things-skills/config.json`: set `areas` to your real area names, adapt
 `routing_hints` and `synonyms` to your vocabulary, and set `tags` to tags that exist in Things
-(or create the missing ones in Things; the skills never create tags). Rerun `/things:things-setup`
-until every row is green, then try `/things:things-today` as the first real skill.
+(or create the missing ones in Things; the skills never create tags). Rerun `$things-setup` in Codex
+or `/things:things-setup` in Claude Code until every row is green, then try `$things-today` or
+`/things:things-today` as the first real skill.
 
 If a row is ❌ the table gives the exact fix; the rows map to steps 1 to 3 above (the things.py
 row means the vendored copy is damaged: clone the repository again). If the plugin does not
-show up, run `/plugin` to check that the marketplace `things3-skills` is listed and the plugin
-`things` is enabled, and restart Claude Code once.
+show up in Codex, run `codex plugin list` and confirm that `things@things3-skills` is installed and
+enabled; reinstall with `codex plugin add things@things3-skills`, then start a new chat. In Claude
+Code, run `/plugin` to check that the marketplace `things3-skills` is listed and the plugin `things`
+is enabled, then restart Claude Code once.
 
 ## Step 5: run the live tests and trash the test projects
 

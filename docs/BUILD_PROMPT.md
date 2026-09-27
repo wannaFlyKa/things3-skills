@@ -2,7 +2,7 @@
 
 > Historical build brief, frozen 2026-09-08. It describes the original ask, not the shipped plugin:
 > `SPEC.md`, `README.md` and `CHANGELOG.md` supersede every fact below (the distribution is now
-> `things3-skills` 0.1.0, things.py is bundled, `requirements.txt` no longer exists, the marketplace
+> `things3-skills` 0.2.0, things.py is bundled, `requirements.txt` no longer exists, the marketplace
 > install is `/plugin install things@things3-skills`, and the macOS gate is `scripts/osgate`, which
 > warns and always exits 0). `SPEC.md` section A.9 records where the brief and the verified facts
 > disagree.

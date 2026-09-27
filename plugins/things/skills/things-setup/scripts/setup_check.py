@@ -47,7 +47,7 @@ TEXT = {
         "next": "Next steps",
         "notes": "Notes",
         "all_ok": "All seven checks passed. The Things skills are ready.",
-        "some_bad": "{n} check(s) failed. Fix them in the order listed, then run /things:things-setup again.",
+        "some_bad": "{n} check(s) failed. Fix them in order, then run $things-setup in Codex or /things:things-setup in Claude Code again.",
     },
     "zh": {
         "title": "Things 配置状态",
@@ -64,7 +64,7 @@ TEXT = {
         "next": "下一步",
         "notes": "备注",
         "all_ok": "七项检查全部通过，Things 技能已就绪。",
-        "some_bad": "有 {n} 项未通过。请按顺序处理，然后再运行一次 /things:things-setup。",
+        "some_bad": "有 {n} 项未通过。请按顺序处理，然后在 Codex 中运行 $things-setup，或在 Claude Code 中运行 /things:things-setup。",
     },
 }
 
@@ -199,15 +199,17 @@ def things_py_fix(lang):
     """things.py ships inside the plugin, so the only repair is to reinstall or update the plugin."""
     return pick(
         lang,
-        "things.py is bundled with the plugin; nothing needs installing by hand. Reinstall or update the plugin: "
-        "run /plugin update things@things3-skills in Claude Code, or re-clone the repository, then rerun the check.",
-        "things.py 已随插件内置，无需手动安装。请重新安装或更新插件：在 Claude Code 中运行 "
-        "/plugin update things@things3-skills，或重新克隆仓库，然后重新运行检查。",
+        "things.py is bundled with the plugin; nothing needs installing by hand. Reinstall or update it with "
+        "`codex plugin add things@things3-skills` in Codex, `/plugin update things@things3-skills` in Claude Code, "
+        "or re-clone the repository, then rerun the check.",
+        "things.py 已随插件内置，无需手动安装。请重新安装或更新插件：在 Codex 中运行 "
+        "`codex plugin add things@things3-skills`，在 Claude Code 中运行 `/plugin update things@things3-skills`，"
+        "或重新克隆仓库，然后重新运行检查。",
     )
 
 
 def fda_fix(lang, app):
-    name = app or pick(lang, "the terminal app you run Claude Code from", "你运行 Claude Code 的终端 App")
+    name = app or pick(lang, "the app you run Codex or Claude Code from", "你运行 Codex 或 Claude Code 的 App")
     return pick(
         lang,
         "Grant Full Disk Access to {a}: System Settings → Privacy & Security → Full Disk Access → click + and add {a} "

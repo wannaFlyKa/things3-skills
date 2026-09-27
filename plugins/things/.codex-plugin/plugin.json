@@ -1,0 +1,36 @@
+{
+  "name": "things",
+  "version": "0.2.0",
+  "description": "Manage Things 3 with bilingual capture, completion, review, deadline, setup, and daily-planning skills. Runs locally on macOS.",
+  "author": {
+    "name": "wannaFlyKa",
+    "url": "https://github.com/wannaFlyKa"
+  },
+  "homepage": "https://github.com/wannaFlyKa/things3-skills",
+  "repository": "https://github.com/wannaFlyKa/things3-skills",
+  "license": "MIT",
+  "keywords": [
+    "things3",
+    "gtd",
+    "todo",
+    "macos",
+    "chinese"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Things 3",
+    "shortDescription": "Capture, review, and plan Things 3 tasks.",
+    "longDescription": "Six local macOS skills for Things 3: setup, capture, close, organize, deadlines, and a morning brief. Reads stay local and writes use the Things URL scheme.",
+    "developerName": "wannaFlyKa",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Set up and check my Things 3 connection.",
+      "Add a task to Things 3.",
+      "Give me my Things 3 morning brief."
+    ]
+  }
+}

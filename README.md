@@ -1,6 +1,6 @@
 # things3-skills
 
-Claude Code skills for managing [Things 3](https://culturedcode.com/things/) to-dos. They reply
+Codex and Claude Code skills for managing [Things 3](https://culturedcode.com/things/) to-dos. They reply
 in Chinese or English and work with input in any language the model understands; only the
 deterministic date parser is limited to Chinese and English phrases (see Known limitations).
 Writes go through the official Things URL scheme; reads go through
@@ -13,9 +13,9 @@ The code was developed and unit-tested on Linux without Things, so the test suit
 
 ## The six skills
 
-Once installed as a plugin the skills are invoked as `/things:<name>` or triggered by the
-phrases in each skill's description. Titles and notes are never translated; replies come
-back in the language you used.
+Once installed as a plugin, invoke a skill as `$things-<name>` in Codex or `/things:things-<name>`
+in Claude Code. Natural-language trigger phrases also work. Titles and notes are never translated;
+replies come back in the language you used.
 
 | Skill | Purpose | Example invocations |
 |---|---|---|
@@ -29,12 +29,28 @@ back in the language you used.
 ## Installation
 
 Prerequisites: macOS; Things 3 installed and opened at least once; Python 3.9 or newer (the
-`python3` that ships with macOS Command Line Tools is fine); Claude Code. There are no Python
+`python3` that ships with macOS Command Line Tools is fine); Codex or Claude Code. There are no Python
 dependencies to install: things.py 1.0.1 is bundled in the plugin at
 `plugins/things/scripts/vendor/things/`, and the CLI prefers that copy over any system-installed
 things.py.
 
-Two ways. Both need the first-time setup in the next section afterwards.
+### Codex
+
+Install from the repository marketplace:
+
+```
+codex plugin marketplace add wannaFlyKa/things3-skills
+codex plugin add things@things3-skills
+```
+
+For a local clone, replace `wannaFlyKa/things3-skills` with the absolute path to the clone. Start a
+new Codex chat after installation so it discovers the six skills, then run `$things-setup` or say
+"check Things". Codex reads `.agents/plugins/marketplace.json` and the plugin's
+`.codex-plugin/plugin.json`; Claude Code continues to use the parallel `.claude-plugin` manifests.
+
+### Claude Code
+
+Two installation paths are available. Both need the first-time setup in the next section afterwards.
 
 **(a) From a GitHub marketplace.** Inside Claude Code:
 
@@ -87,12 +103,12 @@ Nothing to install: the plugin already contains things.py. Three steps remain.
    `note: using auth token from the Things database; create ~/.config/things-skills/auth-token to silence this`
    to stderr. The file makes the token source explicit and works without Full Disk Access.
 
-2. Grant Full Disk Access to the terminal app that runs Claude Code (System Settings →
+2. Grant Full Disk Access to the app that runs Codex or Claude Code (System Settings →
    Privacy & Security → Full Disk Access → add the app), then quit and reopen that app.
    Without it, writes still work but nothing can be read back or verified.
 
-3. Run `/things:things-setup` in Claude Code, or `python3 plugins/things/scripts/things doctor`
-   in a shell, and fix every row that is not green. Setup creates the config file for you: it
+3. Run `$things-setup` in Codex, `/things:things-setup` in Claude Code, or
+   `python3 plugins/things/scripts/things doctor` in a shell, and fix every row that is not green. Setup creates the config file for you: it
    copies `config.example.json` to `~/.config/things-skills/config.json` if it does not exist yet.
 
 ## Configuration
@@ -171,7 +187,7 @@ refused before anything is sent: exit 1, error `placeholder <AREA> for --list wa
 | `--config PATH` | Config file (see above). |
 | `--now ISO` | Freezes "now" for date parsing, verification windows and the date-relative reads (`today`, `upcoming`, `overdue`, `stale`, `logbook`, `deadlines --within`) (`YYYY-MM-DDTHH:MM` or `YYYY-MM-DD HH:MM[:SS]`, local). |
 | `--project` | Treat the given ids as projects (use `update-project`) when the database cannot tell. |
-| `--version` | Prints `things-skills 0.1.0`. |
+| `--version` | Prints `things-skills 0.2.0`. |
 | `--json-input FILE` | Reserved, not implemented yet. |
 
 ### Envelope
@@ -231,8 +247,8 @@ touches the database. Try `things parse-date "next Monday, done by Friday" --now
 
 - Every writing skill previews the exact changes and asks before writing. Only
   `things-capture` accepts "just do it" to skip the question. Confirmation is enforced
-  by the skill text AND by Claude Code permissions: each skill's `allowed-tools` pre-approves only
-  its own helper scripts and the read subcommands it runs, so every write subcommand (`complete`,
+  by the skill text and the host's normal approval policy. In Claude Code, each skill's
+  `allowed-tools` pre-approves only its own helper scripts and the read subcommands it runs, so every write subcommand (`complete`,
   `cancel`, `update`, `move`, `schedule`, `deadline`, `tag`, `add`, `add-project`, `add-json`)
   goes through the normal permission prompt. The CLI itself never asks.
 - Nothing ever deletes. `cancel` and moving to Someday are the strongest actions. The URL
@@ -320,7 +336,7 @@ Environment variables the CLI and tests honour:
 
 | Variable | Meaning |
 |---|---|
-| `THINGS_SKILLS_TRANSPORT` | `open`, `record` or `dry`. `record` appends masked URLs to `.things-skills/outbox.jsonl` in the current directory. With `dry` or `record` exported, `/things:things-setup` row 2 reads "not attempted" and tells you to unset the variable; it never says to reinstall Things. |
+| `THINGS_SKILLS_TRANSPORT` | `open`, `record` or `dry`. `record` appends masked URLs to `.things-skills/outbox.jsonl` in the current directory. With `dry` or `record` exported, the setup skill's row 2 reads "not attempted" and tells you to unset the variable; it never says to reinstall Things. |
 | `THINGSDB` | Path to a Things database; things.py reads this. Point it at the fixture to run reads on Linux. When `THINGSDB` is set, post-write verification is skipped (`verify_reason`: `database overridden by THINGSDB; verification runs only against the default Things database`) and the database token fallback is disabled. |
 | `THINGS_SKILLS_CONFIG` | Config file path, below the `--config` flag in precedence. |
 | `THINGS_SKILLS_LIVE` | `1` enables the live tests (macOS with Things only); they also require `-m live` on the pytest command line, so a plain `pytest` never runs them. |

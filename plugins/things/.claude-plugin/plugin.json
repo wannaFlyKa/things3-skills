@@ -1,6 +1,6 @@
 {
   "name": "things",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Things 3 skills for Claude Code: capture, close, organize, deadlines, today. Replies in Chinese or English; input in any language the model understands. macOS only.",
   "author": { "name": "wannaFlyKa" },
   "license": "MIT",

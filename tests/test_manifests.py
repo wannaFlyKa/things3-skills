@@ -14,6 +14,8 @@ from things_lib import __version__
 
 MARKETPLACE = os.path.join(ROOT, ".claude-plugin", "marketplace.json")
 PLUGIN = os.path.join(ROOT, "plugins", "things", ".claude-plugin", "plugin.json")
+CODEX_MARKETPLACE = os.path.join(ROOT, ".agents", "plugins", "marketplace.json")
+CODEX_PLUGIN = os.path.join(ROOT, "plugins", "things", ".codex-plugin", "plugin.json")
 README = os.path.join(ROOT, "README.md")
 CHANGELOG = os.path.join(ROOT, "CHANGELOG.md")
 
@@ -40,6 +42,25 @@ def test_marketplace_names_the_plugin_and_carries_no_second_version():
     assert entry["source"] == "./plugins/things"
     assert "version" not in entry, "plugin.json is the single source of the version"
     assert os.path.isfile(os.path.join(ROOT, ".claude-plugin", "..", entry["source"], ".claude-plugin", "plugin.json"))
+
+
+def test_codex_manifest_and_repo_marketplace_match_the_claude_plugin():
+    plugin = load(CODEX_PLUGIN)
+    assert plugin["name"] == "things"
+    assert plugin["version"] == __version__
+    assert plugin["skills"] == "./skills/"
+    assert plugin["license"] == "MIT"
+    assert plugin["interface"]["displayName"] == "Things 3"
+
+    marketplace = load(CODEX_MARKETPLACE)
+    assert marketplace["name"] == "things3-skills"
+    assert marketplace["interface"]["displayName"] == "Things3 Skills"
+    assert len(marketplace["plugins"]) == 1
+    entry = marketplace["plugins"][0]
+    assert entry["name"] == "things"
+    assert entry["source"] == {"source": "local", "path": "./plugins/things"}
+    assert entry["policy"] == {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}
+    assert entry["category"] == "Productivity"
 
 
 def test_readme_and_changelog_name_the_same_version():

@@ -577,7 +577,7 @@ def test_doctor_fields_on_linux(run_cli, tmp_path):
     assert data["things_py"] == {"installed": True, "version": "1.0.1", "source": "bundled"}
     assert data["config"]["present"] is False and data["config"]["valid"] is True and data["config"]["missing_tags"] == []
     assert data["config"]["path"] == str(tmp_path / ".config" / "things-skills" / "config.json")
-    assert data["cli_version"] == "0.1.0"
+    assert data["cli_version"] == "0.2.0"
     assert run_cli(*NOW, "--transport", "dry", "doctor")[1]["data"]["transport"] == "dry"
     assert run_cli(*NOW, "--dry-run", "doctor")[1]["data"]["transport"] == "dry"
 

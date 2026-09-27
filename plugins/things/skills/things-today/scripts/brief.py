@@ -40,7 +40,7 @@ LABELS = {
         "deadlines": "Deadlines within 7 days", "inbox": "Inbox: {n} item(s)", "none": "nothing",
         "deadline": "deadline", "ago": "{n} days ago", "in": "in {n} days", "today_word": "today",
         "tomorrow": "tomorrow", "project": "project", "repeating": "repeating", "start": "start",
-        "over_cap": "Today has {n} items, above your cap of {cap}. Trim it with /things:things-organize today.",
+        "over_cap": "Today has {n} items, above your cap of {cap}. Run $things-organize today in Codex or /things:things-organize today in Claude Code.",
         "obsidian": "Obsidian daily note:", "warning": "warning",
         "repeating_unavailable": "repeating detection unavailable; 'repeating' marks may be missing",
         "repeating_unpredicted": "repeating to-dos could not be predicted from the database",
@@ -52,7 +52,7 @@ LABELS = {
         "deadlines": "7 天内到期", "inbox": "收件箱：{n} 条", "none": "无",
         "deadline": "截止", "ago": "已过 {n} 天", "in": "还剩 {n} 天", "today_word": "今天",
         "tomorrow": "明天", "project": "项目", "repeating": "重复任务", "start": "开始",
-        "over_cap": "今天有 {n} 项，超过上限 {cap}，建议运行 /things:things-organize today 精简一下。",
+        "over_cap": "今天有 {n} 项，超过上限 {cap}。请在 Codex 中运行 $things-organize today，或在 Claude Code 中运行 /things:things-organize today。",
         "obsidian": "Obsidian 日记清单：", "warning": "警告",
         "repeating_unavailable": "无法识别重复任务，重复标记可能缺失",
         "repeating_unpredicted": "无法从数据库预测重复任务的下次到期",
@@ -139,7 +139,8 @@ def build(now_dt: datetime, cfg: Dict[str, Any], lang: str, config_path: Optiona
         "deadlines_7": [compact(i) for i in envs["deadlines"]["data"] if (i.get("days_until_deadline") or 0) >= 0],
         "inbox_count": len(envs["inbox"]["data"]),
         "repeating_sentence": REPEATING_SENTENCE[lang],
-        "organize_hint": "/things:things-organize today" if len(today_items) > cap else None,
+        "organize_hint": "$things-organize today (Codex) or /things:things-organize today (Claude Code)"
+        if len(today_items) > cap else None,
         "warnings": warnings, "checklist": checklist,
     }
 

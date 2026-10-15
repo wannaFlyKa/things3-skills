@@ -73,8 +73,11 @@ _EN_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five":
 _PUSH_RE = re.compile(
     r"([+-])?\s*(?<![a-z0-9])(\d+|[零〇一二两三四五六七八九十]+|" + "|".join(sorted(_EN_WORDS, key=len, reverse=True)) + r")"
     r"\s*(个?星期|个?礼拜|周|天|日|(?<![a-z])(?:weeks?|wks?|days?|w|d))(?![a-z])", re.IGNORECASE)
-# 'push back by' is a postponement in English, so it is NOT an earlier marker.
-_EARLIER_RE = re.compile(r"提前|往前|earlier|pull in|bring forward|sooner", re.IGNORECASE)
+# 'push back by' is a postponement in English, so it is NOT an earlier marker. 'bring forward' / 'pull in'
+# take an object between verb and particle ('bring it forward', 'pull the deadline in'), so allow one.
+_OBJECT = r"(?:\s+(?:it|this|that|them|the\s+\S+|my\s+\S+))?"
+_EARLIER_RE = re.compile(r"提前|往前|earlier|sooner|pull" + _OBJECT + r"\s+in\b|bring" + _OBJECT + r"\s+forward",
+                         re.IGNORECASE)
 
 
 def cn_num(token: str) -> int:

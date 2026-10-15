@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `things-deadlines`: "bring it forward two days" and "pull the deadline in a
+  week" now give a negative offset. The earlier-marker patterns only matched
+  `bring forward` / `pull in` with nothing in between, so an object between verb
+  and particle silently pushed the deadline later instead of earlier.
+- `things-organize`: a proposal for a to-do that sits under a project heading now
+  names the project, not the heading. things.py leaves `project_title` empty for
+  those rows, which made the location line read `Upcoming · 1. Week of ...`.
+- Dates: a reminder request with a bare period word now uses that period's time
+  instead of `default_reminder_time`. `今天下午提醒我` gave a 09:00 reminder;
+  it now gives 14:00 (上午/morning 09:00, 晚上/evening 18:00). `今晚提醒我` set
+  no reminder at all and now gives 18:00 today. `提醒我下午开会` (period word,
+  no date) parsed to nothing and now resolves like a time with no date.
+  `this morning` / `this afternoon` now mean today, like `this evening`.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added

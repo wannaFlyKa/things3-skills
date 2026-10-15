@@ -11,8 +11,12 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 WHEN_VOCAB = ("today", "tomorrow", "evening", "anytime", "someday")  # plus yyyy-mm-dd[@HH:MM]
+MORNING_TIME = "09:00"
+AFTERNOON_TIME = "14:00"
 EVENING_TIME = "18:00"
 EOD_TIME = "18:00"
+# R14: the reminder time a bare period word stands for; 凌晨 ("keep") has none and falls back to the default
+_PERIOD_TIMES = {"am": MORNING_TIME, "pm": AFTERNOON_TIME, "evening": EVENING_TIME}
 
 _CJK_RANGES = ((0x4E00, 0x9FFF), (0x3400, 0x4DBF), (0x3000, 0x303F), (0xFF00, 0xFFEF))
 _FULLWIDTH = {chr(0xFF10 + i): str(i) for i in range(10)}
@@ -241,6 +245,10 @@ def _h_relative_day(match: "re.Match", today: date) -> Optional[_Piece]:
         return _Piece(today + timedelta(days=2))
     if word in ("今晚", "tonight", "this evening"):
         return _Piece("today", evening=True, period="evening")
+    if word == "this morning":
+        return _Piece("today", period="am")
+    if word == "this afternoon":
+        return _Piece("today", period="pm")
     if word == "明晚":
         return _Piece("tomorrow", evening=True, period="evening")
     return None
@@ -458,7 +466,7 @@ _PATTERNS: List[Tuple["re.Pattern", Callable[["re.Match", date], Optional[_Piece
     (re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?![\d:])()"), _h_en_time),
     (re.compile(_EN + r"(?:eod|cob|end of (?:the )?day|close of business)" + _END + r"|下班"), _h_eod),
     # relative days (R2, R11)
-    (re.compile(r"大后天|后天|明天|明日|今天|今日|今晚|明晚|" + _EN + r"(?:(?:the\s+)?day after tomorrow|tomorrow|tmrw|tmr|today|tonight|this evening)" + _END), _h_relative_day),
+    (re.compile(r"大后天|后天|明天|明日|今天|今日|今晚|明晚|" + _EN + r"(?:(?:the\s+)?day after tomorrow|tomorrow|tmrw|tmr|today|tonight|this (?:evening|morning|afternoon))" + _END), _h_relative_day),
     # weekends and weekdays (R3, R4, R5)
     # 上/last is matched so the whole past phrase is consumed; its handler returns None (not a date)
     (re.compile(r"(上个?|下下个?|下个?|这个?|本)?(?:周|星期|礼拜|週|禮拜)末"), _h_cn_weekend),
@@ -611,6 +619,10 @@ class _Cluster:
     def marker_only(self) -> bool:
         return all(p.marker for p in self.pieces)
 
+    def period_time(self) -> Optional[str]:
+        """R14: the fixed reminder time of a bare period word (下午 -> 14:00), None when an hour is given."""
+        return None if self.has_time else _PERIOD_TIMES.get(self.period)
+
     def time(self) -> Optional[Tuple[int, int]]:
         """Resolved (hour, minute) after applying the period word (R9), or None."""
         if self.hour is not None:
@@ -743,8 +755,11 @@ def extract_dates(text: str, now: datetime, default_reminder_time: str = "09:00"
     """Return {"when", "deadline", "reminder", "remaining", "language"} for `text` (section F)."""
     norm = _normalise(text)
     clusters: List[_Cluster] = []
+    period_marker: Optional[_Cluster] = None   # first bare period word with no date (`提醒我下午开会`)
     for cluster in _cluster(_scan(norm, now.date()), norm):
         if cluster.marker_only:
+            if period_marker is None and cluster.period_time():
+                period_marker = cluster
             continue
         if clusters and clusters[-1].can_absorb(cluster):
             clusters[-1].absorb(cluster, norm)
@@ -755,6 +770,7 @@ def extract_dates(text: str, now: datetime, default_reminder_time: str = "09:00"
     deadline: Optional[str] = None
     when_reminder: Optional[str] = None
     deadline_reminder: Optional[str] = None
+    when_cluster: Optional[_Cluster] = None
     for cluster in clusters:
         spans = [(cluster.start, cluster.end)] + cluster.spans
         before = _BEFORE_KEYWORD.search(norm[:cluster.start])
@@ -783,16 +799,30 @@ def extract_dates(text: str, now: datetime, default_reminder_time: str = "09:00"
             if value is None:
                 continue
             if when is None:
-                when, when_reminder = value, reminder
+                when, when_reminder, when_cluster = value, reminder, cluster
             removals.extend(spans)
+    reminder_words = list(_REMINDER.finditer(norm))
+    if reminder_words and when is None and period_marker is not None:
+        # a bare period word is a time with no date once a reminder is asked for (R14 -> R10)
+        time = period_marker.period_time()
+        hour, minute = (int(part) for part in time.split(":"))
+        when = f"{period_marker.resolve_date(now, (hour, minute)).isoformat()}@{time}"
+        when_reminder = time
+        removals.append((period_marker.start, period_marker.end))
     if when is not None or deadline is not None:
-        reminder_words = list(_REMINDER.finditer(norm))
         if reminder_words:
             removals.extend(m.span() for m in reminder_words)
-            if when in ("today", "tomorrow") or (when and re.match(r"^\d{4}-\d{2}-\d{2}$", when)):
-                day = now.date() if when == "today" else now.date() + timedelta(days=1) if when == "tomorrow" else when
-                when = f"{day.isoformat() if isinstance(day, date) else day}@{default_reminder_time}"
-                when_reminder = default_reminder_time
+            if when in ("today", "tomorrow", "evening") or (when and re.match(r"^\d{4}-\d{2}-\d{2}$", when)):
+                if when == "tomorrow":
+                    day = (now.date() + timedelta(days=1)).isoformat()
+                elif when in ("today", "evening"):   # 今晚提醒我: a reminder was asked for, so 18:00 today
+                    day = now.date().isoformat()
+                else:
+                    day = when
+                # 今天下午提醒我 -> 14:00, not the default (R14)
+                time = (when_cluster.period_time() if when_cluster else None) or default_reminder_time
+                when = f"{day}@{time}"
+                when_reminder = time
     return {
         "when": when,
         "deadline": deadline,

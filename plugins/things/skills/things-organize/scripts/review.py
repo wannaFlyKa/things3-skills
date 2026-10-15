@@ -291,6 +291,15 @@ def create_private_file(directory: str, stem: str, suffix: str) -> Tuple[int, st
             counter += 1
 
 
+def project_title_of(item: Dict, ctx: Dict) -> Optional[str]:
+    """The project title of a to-do under a heading: things.py leaves project/project_title NULL there."""
+    resolver = ctx.get("container_of")
+    if not resolver:
+        return None
+    proj, _area = resolver(item)
+    return ctx.get("project_title_by_uuid", {}).get(proj or "")
+
+
 def location(item: Dict, ctx: Dict) -> str:
     lang = ctx["lang"]
     uid = item.get("uuid")
@@ -304,7 +313,8 @@ def location(item: Dict, ctx: Dict) -> str:
         bucket = T(lang, "loc_someday")
     else:
         bucket = T(lang, "loc_anytime")
-    container = item.get("project_title") or item.get("heading_title") or item.get("area_title")
+    container = item.get("project_title") or project_title_of(item, ctx) or item.get("heading_title") \
+        or item.get("area_title")
     return "%s · %s" % (bucket, container) if container else bucket
 
 
@@ -375,6 +385,7 @@ def load_context(cfg: Dict, now: datetime, lang: str) -> Dict[str, Any]:
     ctx["area_titles"] = [a.get("title") or "" for a in ctx["areas"]]
     ctx["project_titles"] = [p.get("title") or "" for p in ctx["projects"]]
     ctx["allowed_tags"] = [t for t in (cfg.get("tags") or []) if t in tag_titles]
+    ctx["project_title_by_uuid"] = {p["uuid"]: p.get("title") or "" for p in ctx["projects"]}
     project_area = {p["uuid"]: p.get("area") for p in ctx["projects"]}
     heading_project = {h["uuid"]: h.get("project") for h in headings}
 

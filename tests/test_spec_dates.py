@@ -418,6 +418,49 @@ def test_remind_me_without_any_date_adds_no_date():
     assert result["when"] is None and result["deadline"] is None
 
 
+# A bare period word fixes the reminder time; default_reminder_time="20:00" proves the default is not used.
+@pytest.mark.parametrize("text,when,remaining", [
+    ("今天下午提醒我", "2026-09-09@14:00", ""),
+    ("提醒我明天下午交房租", "2026-09-10@14:00", "交房租"),
+    ("周五下午提醒我交报告", "2026-09-11@14:00", "交报告"),
+    ("remind me tomorrow afternoon", "2026-09-10@14:00", ""),
+    ("remind me this afternoon", "2026-09-09@14:00", ""),
+    ("明天上午提醒我", "2026-09-10@09:00", ""),
+    ("remind me tomorrow morning", "2026-09-10@09:00", ""),
+    ("今晚提醒我", "2026-09-09@18:00", ""),                 # `evening` carries no reminder, so 18:00 today
+    ("remind me tonight", "2026-09-09@18:00", ""),
+    ("提醒我明天晚上倒垃圾", "2026-09-10@18:00", "倒垃圾"),
+    ("提醒我下午开会", "2026-09-09@14:00", "开会"),          # no date: 14:00 is still ahead of 10:00 -> today
+    ("提醒我早上吃药", "2026-09-10@09:00", "吃药"),          # 09:00 already passed at 10:00 -> tomorrow
+])
+def test_remind_me_with_a_bare_period_word_uses_the_period_time(text, when, remaining):
+    result = run(text, default_reminder_time="20:00")
+    assert result["when"] == when, result
+    assert result["reminder"] == when[11:], result
+    assert result["deadline"] is None
+    assert result["remaining"] == remaining, result
+
+
+def test_remind_me_with_a_period_word_that_has_no_fixed_time_uses_the_default():
+    assert run("今天凌晨提醒我", default_reminder_time="08:30")["when"] == "2026-09-09@08:30"
+
+
+@pytest.mark.parametrize("text,when", [
+    ("今天下午", "today"), ("明天上午", "tomorrow"), ("this afternoon", "today"), ("this morning", "today"),
+])
+def test_bare_period_word_without_a_reminder_word_adds_no_reminder(text, when):
+    result = run(text)
+    assert result["when"] == when and result["reminder"] is None, result
+    assert result["remaining"] == ""
+
+
+@pytest.mark.parametrize("text", ["早上跑步", "下午茶", "morning routine"])
+def test_bare_period_word_without_date_or_reminder_word_is_not_a_date(text):
+    result = run(text)
+    assert result["when"] is None and result["reminder"] is None
+    assert result["remaining"] == text
+
+
 # ---- R15 remaining ------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text,remaining", [
